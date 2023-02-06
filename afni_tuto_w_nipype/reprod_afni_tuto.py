@@ -384,97 +384,284 @@ for run in runs:
     res = calc.run()  # doctest: +SKIP
 
 
-# warp the volreg base EPI dataset to make a final version
-cat_matvec -ONELINE                                             \
-           FT_anat_ns+tlrc::WARP_DATA -I                        \
-           FT_anat_al_junk_mat.aff12.1D -I  > mat.basewarp.aff12.1D
 
-3dAllineate -base FT_anat_ns+tlrc                               \
-            -input vr_base_min_outlier+orig                     \
-            -1Dmatrix_apply mat.basewarp.aff12.1D               \
-            -mast_dxyz 2.5                                      \
-            -prefix final_epi_vr_base_min_outlier
+# warp the volreg base EPI dataset to make a final version
+cmv = afni.CatMatvec()
+cmv.inputs.in_file = [('FT_anat_ns+tlrc::WARP_DATA','I'), ('FT_anat_al_junk_mat.aff12.1D','I')]
+cmv.inputs.out_file = 'mat.basewarp.aff12.1D'
+cmv.inputs.oneline = True
+cmv.cmdline
+# should be
+# cat_matvec -ONELINE                                             \
+#            FT_anat_ns+tlrc::WARP_DATA -I                        \
+#            FT_anat_al_junk_mat.aff12.1D -I  > mat.basewarp.aff12.1D
+res = cmv.run()
+
+
+# warp the all-1 dataset for extents masking 
+allineate = afni.Allineate()
+allineate.args = '-final NN -mast_dxyz 2.5'
+allineate.quiet = True
+allineate.reference = 'FT_anat_ns+tlrc'
+allineate.inputs.in_file = 'vr_base_min_outlier+orig'
+allineate.inputs.in_matrix = 'mat.basewarp.aff12.1D'
+allineate.inputs.out_file = 'final_epi_vr_base_min_outlier'
+allineate.cmdline
+# should be
+# 3dAllineate -base FT_anat_ns+tlrc                               \
+#             -input vr_base_min_outlier+orig                     \
+#             -1Dmatrix_apply mat.basewarp.aff12.1D               \
+#             -mast_dxyz 2.5                                      \
+#             -prefix final_epi_vr_base_min_outlier
+res = allineate.run()
+
+
 
 # create an anat_final dataset, aligned with stats
-3dcopy FT_anat_ns+tlrc anat_final.$subj
+copy3d= afni.Copy()
+copy3d.inputs.in_file = "FT_anat_ns+tlrc"
+copy3d.inputs.out_file = "anat_final.{}".format(sub)
+copy3d.cmdline
+# should be 
+# 3dcopy FT_anat_ns+tlrc anat_final.$subj
+res = copy3d.run()
 
 # record final registration costs
-3dAllineate -base final_epi_vr_base_min_outlier+tlrc -allcostX  \
-            -input anat_final.$subj+tlrc |& tee out.allcostX.txt
+allineate = afni.Allineate()
+allineate.quiet = True
+allineate.args = "-allcostX"
+allineate.reference = 'final_epi_vr_base_min_outlier+tlrc'
+allineate.inputs.in_file = 'anat_final.{}+tlrc'.format(sub)
+allineate.inputs.allcostx = 'out.allcostX.txt'
+allineate.cmdline
+# should be
+# 3dAllineate -base final_epi_vr_base_min_outlier+tlrc -allcostX  \
+#             -input anat_final.$subj+tlrc |& tee out.allcostX.txt
+res = allineate.run()
+
+
+
+
 
 # --------------------------------------
 # create a TSNR dataset, just from run 1
-3dTstat -mean -prefix rm.signal.vreg.r01 pb02.$subj.r01.volreg+tlrc
-3dDetrend -polort 3 -prefix rm.noise.det -overwrite pb02.$subj.r01.volreg+tlrc
-3dTstat -stdev -prefix rm.noise.vreg.r01 rm.noise.det+tlrc
-3dcalc -a rm.signal.vreg.r01+tlrc                               \
-       -b rm.noise.vreg.r01+tlrc                                \
-       -c mask_epi_extents+tlrc                                 \
-       -expr 'c*a/b' -prefix TSNR.vreg.r01.$subj
+tstat = afni.TStat()
+tstat.inputs.in_file = 'rm.signal.vreg.r01'
+tstat.inputs.args = '-mean'
+tstat.inputs.out_file = 'pb02.{}.r01.volreg+tlrc'.format(sub)
+tstat.cmdline
+# should be
+# 3dTstat -mean -prefix rm.signal.vreg.r01 pb02.$subj.r01.volreg+tlrc
+res = tstat.run()
+
+detrend = afni.Detrend()
+detrend.inputs.in_file = 'pb02.{}.r01.volreg+tlrc'.format(sub)
+detrend.inputs.args = '-polort 3 -overwrite'
+detrend.inputs.outputtype = 'AFNI'
+detrend.inputs.out_file = 'rm.noise.det'
+detrend.cmdline
+# should be
+# 3dDetrend -polort 3 -prefix rm.noise.det -overwrite pb02.$subj.r01.volreg+tlrc
+res = detrend.run()  # doctest: +SKIP
+
+
+tstat = afni.TStat()
+tstat.inputs.in_file = 'rm.noise.vreg.r01'
+tstat.inputs.args = '-stdev'
+tstat.inputs.out_file = 'rm.noise.det+tlrc'
+tstat.cmdline
+# should be
+# 3dTstat -stdev -prefix rm.noise.vreg.r01 rm.noise.det+tlrc
+res = tstat.run()
+
+
+calc = afni.Calc()
+calc.inputs.in_file_a = 'rm.signal.vreg.r01+tlrc'
+calc.inputs.in_file_b = 'rm.noise.vreg.r01+tlrc'
+calc.inputs.in_file_c = 'mask_epi_extents+tlrc'
+calc.inputs.expr='c*a/b'
+calc.inputs.out_file =  'TSNR.vreg.r01.{}'.format(sub)
+calc.cmdline
+# should be
+# 3dcalc -a rm.signal.vreg.r01+tlrc                               \
+#        -b rm.noise.vreg.r01+tlrc                                \
+#        -c mask_epi_extents+tlrc                                 \
+#        -expr 'c*a/b' -prefix TSNR.vreg.r01.$subj
+res = calc.run() 
+
+
 
 # -----------------------------------------
 # warp anat follower datasets (affine)
 # warp follower dataset FT_anat+orig
-3dAllineate -source FT_anat+orig                                \
-            -master anat_final.$subj+tlrc                       \
-            -final wsinc5 -1Dmatrix_apply warp.anat.Xat.1D      \
-            -prefix anat_w_skull_warped
+allineate = afni.Allineate()
+allineate.quiet = True
+allineate.inputs.in_file = 'FT_anat+orig'
+allineate.inputs.master = 'anat_final.{}}+tlrc'.format(sub)
+allineate.inputs.final_interpolation = 'wsinc5'
+allineate.inputs.in_matrix = 'warp.anat.Xat.1D'
+allineate.inputs.out_file = 'anat_w_skull_warped'
+allineate.cmdline
+# should be
+# 3dAllineate -source FT_anat+orig                                \
+#             -master anat_final.$subj+tlrc                       \
+#             -final wsinc5 -1Dmatrix_apply warp.anat.Xat.1D      \
+#             -prefix anat_w_skull_warped
+res = allineate.run()
 
 # ---------------------------------------------------------
+
+"""missing
 # QC: compute correlations with spherical ~averages
 @radial_correlate -nfirst 0 -polort 3 -do_clean yes             \
                   -rdir radcor.pb02.volreg                      \
                   pb02.$subj.r*.volreg+tlrc.HEAD
+"""
+
 
 # ================================== blur ==================================
 # blur each volume of each run
-foreach run ( $runs )
-    3dmerge -1blur_fwhm 4.0 -doall -prefix pb03.$subj.r$run.blur \
-            pb02.$subj.r$run.volreg+tlrc
-end
+for run in runs:
+    merge = afni.Merge()
+    merge.inputs.in_files = 'pb02.{}.r{}.volreg+tlrc'.format(sub, run)
+    merge.inputs.blurfwhm = 4
+    merge.inputs.doall = True
+    merge.inputs.out_file = 'pb03.{}.r{}.blur'.format(sub, run)
+    merge.cmdline
+    # should be:
+    # 3dmerge -1blur_fwhm 4.0 -doall -prefix pb03.$subj.r$run.blur \
+    #         pb02.$subj.r$run.volreg+tlrc
+    res = merge.run() 
+
+
 
 # ================================== mask ==================================
 # create 'full_mask' dataset (union mask)
-foreach run ( $runs )
-    3dAutomask -prefix rm.mask_r$run pb03.$subj.r$run.blur+tlrc
-end
+for run in runs:
+    automask = afni.Automask()
+    automask.inputs.in_file = 'pb03.$subj.r$run.blur+tlrc'
+    automask.inputs.out_file = "rm.mask_r{}".format(run)
+    automask.cmdline  # doctest: +ELLIPSIS
+    # should be:
+    # 3dAutomask -prefix rm.mask_r$run pb03.$subj.r$run.blur+tlrc
+    res = automask.run()  # doctest: +SKIP
 
 # create union of inputs, output type is byte
-3dmask_tool -inputs rm.mask_r*+tlrc.HEAD -union -prefix full_mask.$subj
+masktool = afni.MaskTool()
+masktool.inputs.in_file = 'rm.mask_r*+tlrc.HEAD'
+masktool.inputs.out_file = "full_mask.{}".format(sub)
+masktool.inputs.union = True
+masktool.cmdline
+# should be:
+# 3dmask_tool -inputs rm.mask_r*+tlrc.HEAD -union -prefix full_mask.$subj
+res = automask.run() 
+
 
 # ---- create subject anatomy mask, mask_anat.$subj+tlrc ----
 #      (resampled from tlrc anat)
-3dresample -master full_mask.$subj+tlrc -input FT_anat_ns+tlrc        \
-           -prefix rm.resam.anat
+resample = afni.Resample()
+resample.inputs.in_file = 'FT_anat_ns+tlrc'
+resample.inputs.master = 'full_mask.{}+tlrc'.format(sub)
+resample.inputs.out_file = 'rm.resam.anat'
+resample.cmdline
+# Should be:
+# 3dresample -master full_mask.$subj+tlrc -input FT_anat_ns+tlrc        \
+#            -prefix rm.resam.anat
+res = resample.run()  # doctest: +SKIP
+
 
 # convert to binary anat mask; fill gaps and holes
-3dmask_tool -dilate_input 5 -5 -fill_holes -input rm.resam.anat+tlrc  \
-            -prefix mask_anat.$subj
+masktool = afni.MaskTool()
+masktool.inputs.in_file = 'rm.resam.anat+tlrc'
+masktool.inputs.dilate_results = '5 -5'
+masktool.inputs.fill_holes = True
+masktool.inputs.out_file = "mask_anat.{}".format(sub)
+masktool.cmdline
+# should be:
+# 3dmask_tool -dilate_input 5 -5 -fill_holes -input rm.resam.anat+tlrc  \
+#             -prefix mask_anat.$subj
+res = automask.run() 
 
 # compute tighter EPI mask by intersecting with anat mask
-3dmask_tool -input full_mask.$subj+tlrc mask_anat.$subj+tlrc          \
-            -inter -prefix mask_epi_anat.$subj
+masktool = afni.MaskTool()
+masktool.inputs.in_file = 'full_mask.{}+tlrc'.format(sub)
+masktool.inputs.out_file = "mask_epi_anat.{}".format(sub)
+masktool.inputs.inter = True
+masktool.cmdline
+# should be:
+# 3dmask_tool -input full_mask.$subj+tlrc mask_anat.$subj+tlrc          \
+#             -inter -prefix mask_epi_anat.$subj
+res = automask.run() 
+
 
 # compute overlaps between anat and EPI masks
-3dABoverlap -no_automask full_mask.$subj+tlrc mask_anat.$subj+tlrc    \
-            |& tee out.mask_ae_overlap.txt
+aboverlap = afni.ABoverlap()
+aboverlap.inputs.in_file_a = 'full_mask.{}+tlrc'.format(sub)
+aboverlap.inputs.in_file_b = 'mask_anat.{}+tlrc'.format(sub)
+aboverlap.inputs.no_automask = True
+aboverlap.inputs.out_file =  'out.mask_ae_overlap.txt'
+aboverlap.cmdline
+# should be
+# 3dABoverlap -no_automask full_mask.$subj+tlrc mask_anat.$subj+tlrc    \
+#             |& tee out.mask_ae_overlap.txt
+res = aboverlap.run() 
+
 
 # note Dice coefficient of masks, as well
-3ddot -dodice full_mask.$subj+tlrc mask_anat.$subj+tlrc               \
-      |& tee out.mask_ae_dice.txt
+dot = afni.Dot()
+dot.inputs.in_files = ['full_mask.{}+tlrc'.format(sub), 'mask_anat.{}+tlrc'.format(sub)]
+dot.inputs.dodice = True
+dot.inputs.out_file = 'out.mask_ae_dice.txt'
+dot.cmdline
+# should be
+# 3ddot -dodice full_mask.$subj+tlrc mask_anat.$subj+tlrc               \
+#       |& tee out.mask_ae_dice.txt
+res = copy3d.run()  
+
 
 # ---- create group anatomy mask, mask_group+tlrc ----
 #      (resampled from tlrc base anat, TT_N27+tlrc)
-3dresample -master full_mask.$subj+tlrc -prefix ./rm.resam.group      \
-           -input /home/jlefortb/abin/TT_N27+tlrc
+resample = afni.Resample()
+resample.inputs.in_file = '/home/jlefortb/abin/TT_N27+tlrc'
+resample.inputs.master = 'full_mask.{}+tlrc'.format(sub)
+resample.inputs.out_file = './rm.resam.group'
+resample.cmdline
+# Should be:
+# 3dresample -master full_mask.$subj+tlrc -prefix ./rm.resam.group      \
+#            -input /home/jlefortb/abin/TT_N27+tlrc
+res = resample.run()  # doctest: +SKIP
+
 
 # convert to binary group mask; fill gaps and holes
-3dmask_tool -dilate_input 5 -5 -fill_holes -input rm.resam.group+tlrc \
-            -prefix mask_group
+masktool = afni.MaskTool()
+masktool.inputs.in_file = 'rm.resam.group+tlrc'
+masktool.inputs.out_file = 'mask_group'
+masktool.inputs.dilate_results = "5 -5"
+masktool.inputs.fill_holes = True
+masktool.cmdline
+# should be:
+# 3dmask_tool -dilate_input 5 -5 -fill_holes -input rm.resam.group+tlrc \
+#             -prefix mask_group
+res = automask.run() 
 
 # note Dice coefficient of anat and template masks
-3ddot -dodice mask_anat.$subj+tlrc mask_group+tlrc                    \
-      |& tee out.mask_at_dice.txt
+dot = afni.Dot()
+dot.inputs.in_files = ['mask_anat.{}+tlrc'.format(sub), 'mask_group+tlrc']
+dot.inputs.dodice = True
+dot.inputs.out_file = 'out.mask_at_dice.txt'
+dot.cmdline
+# should be
+# 3ddot -dodice mask_anat.$subj+tlrc mask_group+tlrc                    \
+#       |& tee out.mask_at_dice.txt
+res = copy3d.run() 
+
+
+
+
+
+###########################
+# PYTHON SCRIPT ENDS HERE #
+###########################
 
 # ================================= scale ==================================
 # scale each voxel time series to have a mean of 100
