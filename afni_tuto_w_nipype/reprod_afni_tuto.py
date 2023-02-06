@@ -656,76 +656,155 @@ dot.cmdline
 res = copy3d.run() 
 
 
-
-
-
-###########################
-# PYTHON SCRIPT ENDS HERE #
-###########################
-
 # ================================= scale ==================================
 # scale each voxel time series to have a mean of 100
 # (be sure no negatives creep in)
 # (subject to a range of [0,200])
-foreach run ( $runs )
-    3dTstat -prefix rm.mean_r$run pb03.$subj.r$run.blur+tlrc
-    3dcalc -a pb03.$subj.r$run.blur+tlrc -b rm.mean_r$run+tlrc \
-           -c mask_epi_extents+tlrc                            \
-           -expr 'c * min(200, a/b*100)*step(a)*step(b)'       \
-           -prefix pb04.$subj.r$run.scale
-end
+for run in runs:
+    tstat = afni.TStat()
+    tstat.inputs.in_file = 'rpb03.{}.r{}.blur+tlrc'.format(sub, run)
+    tstat.inputs.out_file = 'rm.mean_r{}'.format(run)
+    tstat.cmdline
+    # should be:
+    # 3dTstat -prefix rm.mean_r$run pb03.$subj.r$run.blur+tlrc
+    res = tstat.run()
+
+    calc = afni.Calc()
+    calc.inputs.in_file_a = 'pb03.{}.r{}.blur+tlrc'.format(sub, run)
+    calc.inputs.in_file_b = 'rm.mean_r{}+tlrc'.format(run)
+    calc.inputs.in_file_c = 'mask_epi_extents+tlrc '
+    calc.inputs.expr = 'c * min(200, a/b*100)*step(a)*step(b)'
+    calc.inputs.out_file = 'pb04.{}.r{}.scale'.format(sub, run)
+    calc.cmdline
+    # should be:
+    # 3dcalc -a pb03.$subj.r$run.blur+tlrc -b rm.mean_r$run+tlrc \
+    #        -c mask_epi_extents+tlrc                            \
+    #        -expr 'c * min(200, a/b*100)*step(a)*step(b)'       \
+    #        -prefix pb04.$subj.r$run.scale
+    res = calc.run()
+
 
 # ================================ regress =================================
 
 # compute de-meaned motion parameters (for use in regression)
-1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
-           -demean -write motion_demean.1D
+odt = afni.OneDToolPy()
+odt.inputs.in_file = 'dfile_rall.1D'
+odt.inputs.set_nruns = 3
+odt.inputs.demean = True
+odt.inputs.derivative = True
+odt.inputs.out_file = 'motion_dmean.1D'
+odt.cmdline
+# should be:
+# 1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
+#            -demean -write motion_demean.1D
+res = odt.run() 
+
 
 # compute motion parameter derivatives (just to have)
-1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
-           -derivative -demean -write motion_deriv.1D
+odt = afni.OneDToolPy()
+odt.inputs.in_file = 'dfile_rall.1D'
+odt.inputs.set_nruns = 3
+odt.inputs.demean = True
+odt.inputs.out_file = 'motion_deriv.1D'
+odt.cmdline
+# should be:
+# 1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
+#            -derivative -demean -write motion_deriv.1D
+res = odt.run() 
 
 # convert motion parameters for per-run regression
-1d_tool.py -infile motion_demean.1D -set_nruns 3                         \
-           -split_into_pad_runs mot_demean
+odt = afni.OneDToolPy()
+odt.inputs.in_file = 'motion_demean.1D'
+odt.inputs.set_nruns = 3
+odt.inputs.split_into_pad_runs = "mot_demean"
+odt.inputs.out_file = 'motion_deriv.1D'
+odt.cmdline
+# should be:
+# 1d_tool.py -infile motion_demean.1D -set_nruns 3                         \
+#            -split_into_pad_runs mot_demean
+res = odt.run() 
 
-# create censor file motion_${subj}_censor.1D, for censoring motion 
-1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
-    -show_censor_count -censor_prev_TR                                   \
-    -censor_motion 0.3 motion_${subj}
+
+# create censor file motion_${subj}_censor.1D, for censoring motion
+odt = afni.OneDToolPy()
+odt.inputs.in_file = 'dfile_rall.1D'
+odt.inputs.set_nruns = 3
+odt.inputs.censor_motion = (0.3, 'motion_{}'.format(sub))
+odt.inputs.censor_prev_TR = True
+odt.inputs.show_censor_count = true
+odt.cmdline
+# should be:
+# 1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
+#     -show_censor_count -censor_prev_TR                                   \
+#     -censor_motion 0.3 motion_${subj}
+res = odt.run() 
+
 
 # combine multiple censor files
-1deval -a motion_${subj}_censor.1D -b outcount_${subj}_censor.1D         \
-       -expr "a*b" > censor_${subj}_combined_2.1D
+eval = afni.Eval()
+eval.inputs.in_file_a = 'motion_{}_censor.1D'.format(sub)
+eval.inputs.in_file_b = 'outcount_{}_censor.1D'.format(sub)
+eval.inputs.expr = 'a*b'
+eval.inputs.out_file =  'censor_{}_combined_2.1D'.format(sub)
+eval.cmdline
+# should be:
+# 1deval -a motion_${subj}_censor.1D -b outcount_${subj}_censor.1D         \
+#        -expr "a*b" > censor_${subj}_combined_2.1D
+res = eval.run() 
+
+"""missing
 
 # note TRs that were not censored
 set ktrs = `1d_tool.py -infile censor_${subj}_combined_2.1D              \
                        -show_trs_uncensored encoded`
 
+"""
+
 # ------------------------------
 # run the regression analysis
-3dDeconvolve -input pb04.$subj.r*.scale+tlrc.HEAD                        \
-    -censor censor_${subj}_combined_2.1D                                 \
-    -ortvec mot_demean.r01.1D mot_demean_r01                             \
-    -ortvec mot_demean.r02.1D mot_demean_r02                             \
-    -ortvec mot_demean.r03.1D mot_demean_r03                             \
-    -polort 3                                                            \
-    -num_stimts 2                                                        \
-    -stim_times 1 stimuli/AV1_vis.txt 'BLOCK(20,1)'                      \
-    -stim_label 1 vis                                                    \
-    -stim_times 2 stimuli/AV2_aud.txt 'BLOCK(20,1)'                      \
-    -stim_label 2 aud                                                    \
-    -jobs 2                                                              \
-    -gltsym 'SYM: vis -aud'                                              \
-    -glt_label 1 V-A                                                     \
-    -gltsym 'SYM: 0.5*vis +0.5*aud'                                      \
-    -glt_label 2 mean.VA                                                 \
-    -fout -tout -x1D X.xmat.1D -xjpeg X.jpg                              \
-    -x1D_uncensored X.nocensor.xmat.1D                                   \
-    -errts errts.${subj}                                                 \
-    -bucket stats.$subj
+deconvolve = afni.Deconvolve()
+deconvolve.inputs.in_files = ['pb04.{}.r{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
+deconvolve.inputs.out_file = 'stats'.format(sub)
+deconvolve.inputs.x1D_uncensored = 'X.nocensor.xmat.1D'
+deconvolve.inputs.num_stimts = 2
+deconvolve.inputs.polort = 3
+deconvolve.inputs.jobs = 2
+deconvolve.inputs.fout =True 
+deconvolve.inputs.tout = True 
+deconvolve.inputs.x1D = 'X.xmat.1D'
+deconvolve.inputs.xjpeg = 'X.jpg'
+deconvolve.inputs.errts = 'errts.{}'.format(sub)
+deconvolve.inputs.ortvec = [('mot_demean.r{}.1D'.format(run), 'mot_demean_r{}'.format(run)) for run in runs]
+deconvolve.inputs.censor = 'censor_{}_combined_2.1D'.format(sub)
+deconvolve.inputs.stim_times = [(1, "stimuli/AV1_vis.txt 'BLOCK(20,1)'"), (2, "stimuli/AV2_aud.txt 'BLOCK(20,1)'")]
+deconvolve.inputs.stim_label = [(1, "vis"), (2, 'aud')]
+deconvolve.inputs.gltsym = [('SYM: vis -aud'), ('SYM: 0.5*vis +0.5*aud')]
+deconvolve.inputs.glt_label = [(1, 'V-A'), (2, 'mean.VA')]
+deconvolve.cmdline
+# should be
+# 3dDeconvolve -input pb04.$subj.r*.scale+tlrc.HEAD                        \
+#     -censor censor_${subj}_combined_2.1D                                 \
+#     -ortvec mot_demean.r01.1D mot_demean_r01                             \
+#     -ortvec mot_demean.r02.1D mot_demean_r02                             \
+#     -ortvec mot_demean.r03.1D mot_demean_r03                             \
+#     -polort 3                                                            \
+#     -num_stimts 2                                                        \
+#     -stim_times 1 stimuli/AV1_vis.txt 'BLOCK(20,1)'                      \
+#     -stim_label 1 vis                                                    \
+#     -stim_times 2 stimuli/AV2_aud.txt 'BLOCK(20,1)'                      \
+#     -stim_label 2 aud                                                    \
+#     -jobs 2                                                              \
+#     -gltsym 'SYM: vis -aud'                                              \
+#     -glt_label 1 V-A                                                     \
+#     -gltsym 'SYM: 0.5*vis +0.5*aud'                                      \
+#     -glt_label 2 mean.VA                                                 \
+#     -fout -tout -x1D X.xmat.1D -xjpeg X.jpg                              \
+#     -x1D_uncensored X.nocensor.xmat.1D                                   \
+#     -errts errts.${subj}                                                 \
+#     -bucket stats.$subj
+res = deconvolve.run()  # doctest: +SKIP
 
-
+"""missing
 # if 3dDeconvolve fails, terminate the script
 if ( $status != 0 ) then
     echo '---------------------------------------'
@@ -733,42 +812,141 @@ if ( $status != 0 ) then
     echo '   (consider the file 3dDeconvolve.err)'
     exit
 endif
+"""
+
 
 
 # display any large pairwise correlations from the X-matrix
-1d_tool.py -show_cormat_warnings -infile X.xmat.1D |& tee out.cormat_warn.txt
+odt = afni.OneDToolPy()
+odt.inputs.in_file = 'X.xmat.1D'
+odt.inputs.show_cormat_warnings = True
+odt.inputs.out_file = "out.cormat_warn.txt"
+odt.cmdline
+# should be:
+# 1d_tool.py -show_cormat_warnings -infile X.xmat.1D |& tee out.cormat_warn.txt
+res = odt.run() 
+
+
 
 # display degrees of freedom info from X-matrix
-1d_tool.py -show_df_info -infile X.xmat.1D |& tee out.df_info.txt
+odt = afni.OneDToolPy()
+odt.inputs.in_file = 'X.xmat.1D'
+odt.inputs.show_df_info = True
+odt.inputs.out_file = "out.df_info.txt"
+odt.cmdline
+# should be:
+# 1d_tool.py -show_df_info -infile X.xmat.1D |& tee out.df_info.txt
+res = odt.run() 
 
 # create an all_runs dataset to match the fitts, errts, etc.
-3dTcat -prefix all_runs.$subj pb04.$subj.r*.scale+tlrc.HEAD
+tcat = afni.TCat()
+tcat.inputs.in_files = ['pb04.{}.r{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
+tcat.inputs.out_file = "all_runs.{}".format(sub)
+tcat.cmdline
+# should be
+# 3dTcat -prefix all_runs.$subj pb04.$subj.r*.scale+tlrc.HEAD
+res = tcat.run()  
+
 
 # --------------------------------------------------
 # create a temporal signal to noise ratio dataset 
 #    signal: if 'scale' block, mean should be 100
 #    noise : compute standard deviation of errts
-3dTstat -mean -prefix rm.signal.all all_runs.$subj+tlrc"[$ktrs]"
-3dTstat -stdev -prefix rm.noise.all errts.${subj}+tlrc"[$ktrs]"
-3dcalc -a rm.signal.all+tlrc                                             \
-       -b rm.noise.all+tlrc                                              \
-       -expr 'a/b' -prefix TSNR.$subj
+tcsb = afni.TCatSubBrick()
+tcsb.inputs.in_files = [('all_runs.{}+tlrc'.format(sub), "'[$ktrs]'")]
+tcsb.inputs.out_file = "rm.signal.all"
+tcsb.inputs.mean = True
+# should be
+# 3dTstat -mean -prefix rm.signal.all all_runs.$subj+tlrc"[$ktrs]"
+res = tcsb.run() 
+
+tcsb = afni.TCatSubBrick()
+tcsb.inputs.in_files = [('errts.{}+tlrc'.format(sub), "'[$ktrs]'")]
+tcsb.inputs.out_file = "rm.noise.all"
+tcsb.inputs.stdev = True
+# should be
+# 3dTstat -stdev -prefix rm.noise.all errts.${subj}+tlrc"[$ktrs]"
+res = tcsb.run() 
+
+
+calc = afni.Calc()
+calc.inputs.in_file_a = 'rm.signal.all+tlrc'
+calc.inputs.in_file_b = 'rm.noise.all+tlrc'
+calc.inputs.expr = 'a/b'
+calc.inputs.out_file = 'TSNR.{}'.format(sub)
+calc.cmdline
+# should be:
+# 3dcalc -a rm.signal.all+tlrc                                             \
+#        -b rm.noise.all+tlrc                                              \
+#        -expr 'a/b' -prefix TSNR.$subj
+res = calc.run()
 
 # ---------------------------------------------------
 # compute and store GCOR (global correlation average)
 # (sum of squares of global mean of unit errts)
-3dTnorm -norm2 -prefix rm.errts.unit errts.${subj}+tlrc
-3dmaskave -quiet -mask full_mask.$subj+tlrc rm.errts.unit+tlrc           \
-          > mean.errts.unit.1D
-3dTstat -sos -prefix - mean.errts.unit.1D\' > out.gcor.1D
-echo "-- GCOR = `cat out.gcor.1D`"
+tnorm = afni.TNorm()
+tnorm.inputs.in_file = 'functional.nii'
+tnorm.inputs.norm2 = True
+tnorm.inputs.out_file = 'rm.errts.unit errts.{}+tlrc'.format(sub)
+tnorm.cmdline
+# should be
+# 3dTnorm -norm2 -prefix rm.errts.unit errts.${subj}+tlrc
+res = tshift.run()  
+
+maskave = afni.Maskave()
+maskave.inputs.in_file = 'rm.errts.unit+tlrc'
+maskave.inputs.mask= 'full_mask.{}+tlrc'.format(sub)
+maskave.inputs.quiet= True
+maskave.inputs.out_file = "mean.errts.unit.1D"
+maskave.cmdline 
+# should be 
+# 3dmaskave -quiet -mask full_mask.$subj+tlrc rm.errts.unit+tlrc           \
+#          > mean.errts.unit.1D
+res = maskave.run()  
+
+tcat = afni.TCat()
+tcat.inputs.in_files = ['pb04.{}.r{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
+tcat.inputs.out_file = "out.gcor.1D"
+tcat.sos = True
+tcat.cmdline
+# should be
+# 3dTstat -sos -prefix - mean.errts.unit.1D\' > out.gcor.1D'
+res = tcat.run()
+print("-- GCOR = `cat out.gcor.1D`")
+
 
 # ---------------------------------------------------
 # compute correlation volume
 # (per voxel: correlation with masked brain average)
-3dmaskave -quiet -mask full_mask.$subj+tlrc errts.${subj}+tlrc           \
-          > mean.errts.1D
-3dTcorr1D -prefix corr_brain errts.${subj}+tlrc mean.errts.1D
+maskave = afni.Maskave()
+maskave.inputs.in_file = ' errts.{}+tlrc'.format(sub)
+maskave.inputs.mask = 'full_mask.{}+tlrc'.format(sub)
+maskave.inputs.quiet = True
+maskave.inputs.out_file = "mean.errts.1D"
+maskave.cmdline 
+# should be 
+# 3dmaskave -quiet -mask full_mask.$subj+tlrc errts.${subj}+tlrc           \
+#           > mean.errts.1D
+res = maskave.run()  
+
+
+tcorr1D = afni.TCorr1D()
+tcorr1D.inputs.xset= 'errts.{}+tlrc'.format(sub)
+tcorr1D.inputs.y_1d = 'mean.errts.1D'
+tcorr1D.inputs.out_file = 'corr_brain'
+tcorr1D.cmdline
+# should be
+# 3dTcorr1D -prefix corr_brain errts.${subj}+tlrc mean.errts.1D
+res = tcorr1D.run() 
+
+
+
+
+###########################
+# PYTHON SCRIPT ENDS HERE #
+###########################
+
+
 
 # create fitts dataset from all_runs and errts
 3dcalc -a all_runs.$subj+tlrc -b errts.${subj}+tlrc -expr a-b            \
