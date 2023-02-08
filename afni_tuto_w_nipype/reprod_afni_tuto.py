@@ -34,7 +34,7 @@ shutil.copy(src1, dst)
 shutil.copy(src2, dst)
 
 # copy anatomy to results dir
-copy3d= afni.Copy()
+copy3d = afni.Copy() # Copies an image of one type to an image of the same or different type 
 copy3d.inputs.in_file = "FT/FT_anat+orig.HEAD"
 copy3d.inputs.out_file = opj(output_dir, "FT_anat")
 copy3d.cmdline
@@ -42,8 +42,9 @@ copy3d.cmdline
 # 3dcopy FT/FT_anat+orig $output_dir/FT_anat
 res = copy3d.run()
 
+
 # copy template to results dir (for QC)
-copy3d= afni.Copy()
+copy3d= afni.Copy() # Copies an image of one type to an image of the same or different type 
 copy3d.inputs.in_file = "/home/jlefortb/abin/TT_N27+tlrc.HEAD"
 copy3d.inputs.out_file = opj(output_dir, "TT_N27+tlrc.HEAD")
 copy3d.cmdline
@@ -55,7 +56,7 @@ res = copy3d.run()
 # apply 3dTcat to copy input dsets to results dir,
 # while removing the first 2 TRs
 for run in runs:
-	tcsb = afni.TCatSubBrick()
+	tcsb = afni.TCatSubBrick() # allow sub-brick selection 
 	tcsb.inputs.in_files = [('FT/FT_epi_r{}+orig.BRIK'.format(run), "'{2..$}'")]
 	tcsb.inputs.out_file = opj(output_dir, "pb00.{}.r0{}.tcat".format(sub, run))
 	tcsb.cmdline
@@ -92,6 +93,7 @@ from pathlib import Path
 Path('out.pre_ss_warn.txt').touch()
 
 for run in runs:
+    # Calculates number of ‘outliers’ at each time point of a a 3D+time dataset.
     toutcount = afni.OutlierCount(automask=True, fraction=True, polort=3, legendre=True)
     toutcount.inputs.in_file = 'pb00.{}.r0{}.tcat+orig.BRIK'.format(sub, run)
     toutcount.inputs.out_file = 'outcount.r0{}.1D'.format(run)
@@ -104,7 +106,8 @@ for run in runs:
     # censor outlier TRs per run, ignoring the first 0 TRs
     # - censor when more than 0.05 of automask voxels are outliers
     # - step() defines which TRs to remove via censoring
-    eval = afni.Eval()
+    eval = afni.Eval()# Evaluates an expression that may include columns of data from one or more text files
+    # Evaluates an expression that may include columns of data from one or more text files.
     eval.inputs.in_file_a = 'outcount.r0{}.1D'.format(run)
     eval.inputs.expr = '1-step(a-0.05)'
     eval.inputs.out_file =  'rm.out.cen.r0{}.1D'.format(run)
@@ -122,7 +125,7 @@ for run in runs:
     ###############
 
     # outliers at TR 0 might suggest pre-steady state TRs
-    eval = afni.Eval()
+    eval = afni.Eval()# Evaluates an expression that may include columns of data from one or more text files
     eval.inputs.in_file_a = 'outcount.r0{}.1D'.format(run)
     eval.inputs.single_idx = 0
     eval.inputs.expr = 'step(a-0.4)'
@@ -141,7 +144,7 @@ filenames = ['outcount.r01.1D', 'outcount.r02.1D', 'outcount.r03.1D']
 with open('outcount_rall.1D', 'w') as outfile:
     for fname in filenames:
         with open(fname) as infile:
-            outfile.write(infile.read())
+            outfile.write(infile.read()+'\n')
 
 
 # catenate outlier censor files into a single time series
@@ -150,14 +153,15 @@ filenames = ['rm.out.cen.r01.1D', 'rm.out.cen.r02.1D', 'rm.out.cen.r03.1D']
 with open('outcount_{}_censor.1D'.format(sub), 'w') as outfile:
     for fname in filenames:
         with open(fname) as infile:
-            outfile.write(infile.read())
+            outfile.write(infile.read()+'\n')
+
 
 
 
 
 
 # get run number and TR index for minimum outlier volume
-tstat = afni.TStat()
+tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_file = 'outcount_rall.1D'
 tstat.inputs.args = '-argmin'
 tstat.inputs.out_file = '-'
@@ -179,7 +183,7 @@ echo "min outlier: run $minoutrun, TR $minouttr" | tee out.min_outlier.txt
 
 
 ### first attempt :
-odt = afni.OneDToolPy()
+odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
 odt.inputs.args = "-set_run_lengths {}".format(tr_counts)
 odt.inputs.args = "-index_to_run_tr {}".format(minindex)  
 odt.inputs.set_run_lengths = tr_counts
@@ -193,7 +197,7 @@ res = odt.run()  # doctest: +SKIP
 # ================================= tshift =================================
 # time shift data so all slice timing is the same 
 for run in runs:
-	tshift = afni.TShift()
+	tshift = afni.TShift() # Shifts voxel time series from input so that seperate slices are aligned to the same temporal origin.
 	tshift.inputs.args = '-quintic'
 	tshift.inputs.in_file = 'pb00.{}.r0{}.tcat+orig.BRIK'.format(sub, run)
 	tshift.inputs.tzero = 0
@@ -206,7 +210,7 @@ for run in runs:
 
 # --------------------------------
 # extract volreg registration base
-bucket = afni.Bucket()
+bucket = afni.Bucket() # Concatenate sub-bricks from input datasets into one big ‘bucket’ dataset.
 bucket.inputs.in_file = [('pb01.{}.r{}minoutrun.tshift+orig.BRIK'.format(sub, minoutrun),"[{}}]".format(minouttr))]
 bucket.inputs.out_file = 'vr_base_min_outlier'
 bucket.cmdline
@@ -227,7 +231,9 @@ res = bucket.run()  # doctest: +SKIP
 3dLocalUnifize -input vr_base_min_outlier+orig -prefix \
     vr_base_min_outlier_unif
 """
-
+# computes the alignment between two datasets, typically an EPI and an anatomical 
+# structural dataset, and applies the resulting transformation to one or the other 
+# to bring them into alignment
 al_ea = afni.AlignEpiAnatPy()
 al_ea.inputs.anat = "FT_anat+orig"
 al_ea.inputs.in_file = "vr_base_min_outlier_unif+orig"
@@ -252,7 +258,7 @@ res = allineate.run()  # doctest: +SKIP
 
 # ================================== tlrc ==================================
 # warp anatomy to standard space
-autoTLRC = afni.AutoTLRC()
+autoTLRC = afni.AutoTLRC() # A minmal wrapper for the AutoTLRC script
 autoTLRC.inputs.in_file = 'FT_anat_ns+orig'
 autoTLRC.inputs.no_ss = True
 autoTLRC.inputs.base = "TT_N27+tlrc"
@@ -263,7 +269,7 @@ res = autoTLRC.run()
 
 
 # store forward transformation matrix in a text file
-cmv = afni.CatMatvec()
+cmv = afni.CatMatvec() # Catenates 3D rotation+shift matrix+vector transformations.
 cmv.inputs.in_file = [('FT_anat_ns+tlrc::WARP_DATA','I')]
 cmv.inputs.out_file = 'warp.anat.Xat.1D'
 cmv.cmdline
@@ -281,7 +287,7 @@ assert exists("FT_anat_ns+tlrc.HEAD"), "** missing +tlrc warp dataset: FT_anat_n
 # register and warp
 for run in runs:
     # register each volume to the base image
-    volreg = afni.Volreg()
+    volreg = afni.Volreg() # Register input volumes to a base volume using AFNI 3dvolreg command
     volreg.inputs.in_file = 'pb01.$subj.r$run.tshift+orig'
     volreg.inputs.interp = 'cubic'
     volreg.inputs.args = '-Fourier -twopass'
@@ -301,7 +307,7 @@ for run in runs:
     res = volreg.run()
 
     # create an all-1 dataset to mask the extents of the warp
-    calc = afni.Calc()
+    calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
     calc.inputs.overwrite = True
     calc.inputs.in_file_a = 'pb01.{}.r{}.tshift+orig'.format(sub, run)
     calc.inputs.expr = 1
@@ -313,7 +319,7 @@ for run in runs:
     res = calc.run()
 
     # catenate volreg/epi2anat/tlrc xforms
-    cmv = afni.CatMatvec()
+    cmv = afni.Bucket() # Concatenate sub-bricks from input datasets into one big ‘bucket’ dataset.
     cmv.inputs.in_file = [('FT_anat_ns+tlrc::WARP_DATA','I'), ('FT_anat_al_junk_mat.aff12.1D','I')]
     cmv.inputs.out_file = 'mat.r$run.warp.aff12.1D'
     cmv.inputs.oneline = True
@@ -326,7 +332,7 @@ for run in runs:
     res = cmv.run()
 
     # apply catenated xform: volreg/epi2anat/tlrc
-    allineate = afni.Allineate()
+    allineate = afni.Allineate() # Program to align one dataset (the ‘source’) to a base dataset
     allineate.args = '-mast_dxyz 2.5'
     allineate.reference = 'FT_anat_ns+tlrc'
     allineate.inputs.in_file = 'pb01.{}.r{}.tshift+orig'.format(sub, run)
@@ -342,7 +348,7 @@ for run in runs:
     res = allineate.run()
 
     # warp the all-1 dataset for extents masking 
-    allineate = afni.Allineate()
+    allineate = afni.Allineate() # Program to align one dataset (the ‘source’) to a base dataset
     allineate.args = '-final NN -mast_dxyz 2.5'
     allineate.quiet = True
     allineate.reference = 'FT_anat_ns+tlrc'
@@ -359,7 +365,7 @@ for run in runs:
     res = allineate.run()
 
     # make an extents intersection mask of this run
-    tstat = afni.TStat()
+    tstat = afni.TStat() # Compute voxel-wise statistics
     tstat.inputs.in_file = 'rm.epi.1.r{}+tlrc'.format(run)
     tstat.inputs.args = '-min'
     tstat.inputs.out_file = 'm.epi.min.r{}'.format(run)
@@ -370,21 +376,19 @@ for run in runs:
 
 
 # make a single file of registration params
-cat dfile.r*.1D > dfile_rall.1D
-
 # catenate outlier counts into a single time series
 filenames = ['dfile.r01.1D', 'dfile.r02.1D', 'dfile.r03.1D']
-with open('outcount_{}_censor.1D'.format(sub), 'w') as outfile:
+with open('dfile_rall.1D', 'w') as outfile:
     for fname in filenames:
         with open(fname) as infile:
             outfile.write(infile.read())
-
+# cat dfile.r*.1D > dfile_rall.1D
 
 # ----------------------------------------
 # create the extents mask: mask_epi_extents+tlrc
 # (this is a mask of voxels that have valid data at every TR)
 from nipype.interfaces import afni
-means = afni.Means()
+means = afni.Means() # Takes the voxel-by-voxel mean of all input datasets using 3dMean
 means.datum = 'short'
 means.inputs.in_file_a = 'rm.epi.min.r*.HEAD'
 means.inputs.out_file =  'rm.epi.mean'
@@ -393,7 +397,7 @@ means.cmdline
 # 3dMean -datum short -prefix rm.epi.mean rm.epi.min.r*.HEAD 
 res = means.run() 
 
-calc = afni.Calc()
+calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
 calc.inputs.in_file_a = 'rm.epi.mean+tlrc'
 calc.inputs.expr='step(a-0.999)'
 calc.inputs.out_file =  'mask_epi_extents'
@@ -406,7 +410,7 @@ res = calc.run()  # doctest: +SKIP
 # and apply the extents mask to the EPI data 
 # (delete any time series with missing data)
 for run in runs:
-    calc = afni.Calc()
+    calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
     calc.inputs.in_file_a = 'rm.epi.nomask.r{}+tlrc'.format(run)
     calc.inputs.in_file_b = 'mask_epi_extents+tlrc'
     calc.inputs.expr='a*b'
@@ -420,7 +424,7 @@ for run in runs:
 
 
 # warp the volreg base EPI dataset to make a final version
-cmv = afni.CatMatvec()
+cmv = afni.Bucket() # Concatenate sub-bricks from input datasets into one big ‘bucket’ dataset.
 cmv.inputs.in_file = [('FT_anat_ns+tlrc::WARP_DATA','I'), ('FT_anat_al_junk_mat.aff12.1D','I')]
 cmv.inputs.out_file = 'mat.basewarp.aff12.1D'
 cmv.inputs.oneline = True
@@ -433,7 +437,7 @@ res = cmv.run()
 
 
 # warp the all-1 dataset for extents masking 
-allineate = afni.Allineate()
+allineate = afni.Allineate() # Program to align one dataset (the ‘source’) to a base dataset
 allineate.args = '-final NN -mast_dxyz 2.5'
 allineate.quiet = True
 allineate.reference = 'FT_anat_ns+tlrc'
@@ -452,7 +456,7 @@ res = allineate.run()
 
 
 # create an anat_final dataset, aligned with stats
-copy3d= afni.Copy()
+copy3d=  afni.Copy() # Copies an image of one type to an image of the same or different type
 copy3d.inputs.in_file = "FT_anat_ns+tlrc"
 copy3d.inputs.out_file = "anat_final.{}".format(sub)
 copy3d.cmdline
@@ -461,7 +465,7 @@ copy3d.cmdline
 res = copy3d.run()
 
 # record final registration costs
-allineate = afni.Allineate()
+allineate = afni.Allineate() # Program to align one dataset (the ‘source’) to a base dataset
 allineate.quiet = True
 allineate.args = "-allcostX"
 allineate.reference = 'final_epi_vr_base_min_outlier+tlrc'
@@ -479,7 +483,7 @@ res = allineate.run()
 
 # --------------------------------------
 # create a TSNR dataset, just from run 1
-tstat = afni.TStat()
+tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_file = 'rm.signal.vreg.r01'
 tstat.inputs.args = '-mean'
 tstat.inputs.out_file = 'pb02.{}.r01.volreg+tlrc'.format(sub)
@@ -499,7 +503,7 @@ detrend.cmdline
 res = detrend.run()  # doctest: +SKIP
 
 
-tstat = afni.TStat()
+tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_file = 'rm.noise.vreg.r01'
 tstat.inputs.args = '-stdev'
 tstat.inputs.out_file = 'rm.noise.det+tlrc'
@@ -509,7 +513,7 @@ tstat.cmdline
 res = tstat.run()
 
 
-calc = afni.Calc()
+calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
 calc.inputs.in_file_a = 'rm.signal.vreg.r01+tlrc'
 calc.inputs.in_file_b = 'rm.noise.vreg.r01+tlrc'
 calc.inputs.in_file_c = 'mask_epi_extents+tlrc'
@@ -528,7 +532,7 @@ res = calc.run()
 # -----------------------------------------
 # warp anat follower datasets (affine)
 # warp follower dataset FT_anat+orig
-allineate = afni.Allineate()
+allineate = afni.Allineate() # Program to align one dataset (the ‘source’) to a base dataset
 allineate.quiet = True
 allineate.inputs.in_file = 'FT_anat+orig'
 allineate.inputs.master = 'anat_final.{}}+tlrc'.format(sub)
@@ -556,7 +560,7 @@ res = allineate.run()
 # ================================== blur ==================================
 # blur each volume of each run
 for run in runs:
-    merge = afni.Merge()
+    merge = afni.Merge() # Merge or edit volumes using AFNI 3dmerge command
     merge.inputs.in_files = 'pb02.{}.r{}.volreg+tlrc'.format(sub, run)
     merge.inputs.blurfwhm = 4
     merge.inputs.doall = True
@@ -572,7 +576,7 @@ for run in runs:
 # ================================== mask ==================================
 # create 'full_mask' dataset (union mask)
 for run in runs:
-    automask = afni.Automask()
+    automask = afni.Automask() # Create a brain-only mask of the image using AFNI 3dAutomask command
     automask.inputs.in_file = 'pb03.$subj.r$run.blur+tlrc'
     automask.inputs.out_file = "rm.mask_r{}".format(run)
     automask.cmdline  # doctest: +ELLIPSIS
@@ -581,7 +585,7 @@ for run in runs:
     res = automask.run()  # doctest: +SKIP
 
 # create union of inputs, output type is byte
-masktool = afni.MaskTool()
+masktool = afni.MaskTool() # for combining/dilating/eroding/filling masks
 masktool.inputs.in_file = 'rm.mask_r*+tlrc.HEAD'
 masktool.inputs.out_file = "full_mask.{}".format(sub)
 masktool.inputs.union = True
@@ -593,7 +597,7 @@ res = automask.run()
 
 # ---- create subject anatomy mask, mask_anat.$subj+tlrc ----
 #      (resampled from tlrc anat)
-resample = afni.Resample()
+resample = afni.Resample() # Resample or reorient an image using AFNI 3dresample command
 resample.inputs.in_file = 'FT_anat_ns+tlrc'
 resample.inputs.master = 'full_mask.{}+tlrc'.format(sub)
 resample.inputs.out_file = 'rm.resam.anat'
@@ -605,7 +609,7 @@ res = resample.run()  # doctest: +SKIP
 
 
 # convert to binary anat mask; fill gaps and holes
-masktool = afni.MaskTool()
+masktool = afni.MaskTool() # for combining/dilating/eroding/filling masks
 masktool.inputs.in_file = 'rm.resam.anat+tlrc'
 masktool.inputs.dilate_results = '5 -5'
 masktool.inputs.fill_holes = True
@@ -617,7 +621,7 @@ masktool.cmdline
 res = automask.run() 
 
 # compute tighter EPI mask by intersecting with anat mask
-masktool = afni.MaskTool()
+masktool = afni.MaskTool() # for combining/dilating/eroding/filling masks
 masktool.inputs.in_file = 'full_mask.{}+tlrc'.format(sub)
 masktool.inputs.out_file = "mask_epi_anat.{}".format(sub)
 masktool.inputs.inter = True
@@ -642,7 +646,7 @@ res = aboverlap.run()
 
 
 # note Dice coefficient of masks, as well
-dot = afni.Dot()
+dot = afni.Dot() # Correlation coefficient between sub-brick pairs. All datasets in in_files list will be concatenated. 
 dot.inputs.in_files = ['full_mask.{}+tlrc'.format(sub), 'mask_anat.{}+tlrc'.format(sub)]
 dot.inputs.dodice = True
 dot.inputs.out_file = 'out.mask_ae_dice.txt'
@@ -655,7 +659,7 @@ res = copy3d.run()
 
 # ---- create group anatomy mask, mask_group+tlrc ----
 #      (resampled from tlrc base anat, TT_N27+tlrc)
-resample = afni.Resample()
+resample = afni.Resample() # Resample or reorient an image using AFNI 3dresample command
 resample.inputs.in_file = '/home/jlefortb/abin/TT_N27+tlrc'
 resample.inputs.master = 'full_mask.{}+tlrc'.format(sub)
 resample.inputs.out_file = './rm.resam.group'
@@ -667,7 +671,7 @@ res = resample.run()  # doctest: +SKIP
 
 
 # convert to binary group mask; fill gaps and holes
-masktool = afni.MaskTool()
+masktool = afni.MaskTool() # for combining/dilating/eroding/filling masks
 masktool.inputs.in_file = 'rm.resam.group+tlrc'
 masktool.inputs.out_file = 'mask_group'
 masktool.inputs.dilate_results = "5 -5"
@@ -679,7 +683,7 @@ masktool.cmdline
 res = automask.run() 
 
 # note Dice coefficient of anat and template masks
-dot = afni.Dot()
+dot = afni.Dot() # Correlation coefficient between sub-brick pairs. All datasets in in_files list will be concatenated. 
 dot.inputs.in_files = ['mask_anat.{}+tlrc'.format(sub), 'mask_group+tlrc']
 dot.inputs.dodice = True
 dot.inputs.out_file = 'out.mask_at_dice.txt'
@@ -695,7 +699,7 @@ res = copy3d.run()
 # (be sure no negatives creep in)
 # (subject to a range of [0,200])
 for run in runs:
-    tstat = afni.TStat()
+    tstat = afni.TStat() # Compute voxel-wise statistics
     tstat.inputs.in_file = 'rpb03.{}.r{}.blur+tlrc'.format(sub, run)
     tstat.inputs.out_file = 'rm.mean_r{}'.format(run)
     tstat.cmdline
@@ -703,7 +707,7 @@ for run in runs:
     # 3dTstat -prefix rm.mean_r$run pb03.$subj.r$run.blur+tlrc
     res = tstat.run()
 
-    calc = afni.Calc()
+    calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
     calc.inputs.in_file_a = 'pb03.{}.r{}.blur+tlrc'.format(sub, run)
     calc.inputs.in_file_b = 'rm.mean_r{}+tlrc'.format(run)
     calc.inputs.in_file_c = 'mask_epi_extents+tlrc '
@@ -721,7 +725,7 @@ for run in runs:
 # ================================ regress =================================
 
 # compute de-meaned motion parameters (for use in regression)
-odt = afni.OneDToolPy()
+odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
 odt.inputs.in_file = 'dfile_rall.1D'
 odt.inputs.set_nruns = 3
 odt.inputs.demean = True
@@ -735,7 +739,7 @@ res = odt.run()
 
 
 # compute motion parameter derivatives (just to have)
-odt = afni.OneDToolPy()
+odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
 odt.inputs.in_file = 'dfile_rall.1D'
 odt.inputs.set_nruns = 3
 odt.inputs.demean = True
@@ -747,7 +751,7 @@ odt.cmdline
 res = odt.run() 
 
 # convert motion parameters for per-run regression
-odt = afni.OneDToolPy()
+odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
 odt.inputs.in_file = 'motion_demean.1D'
 odt.inputs.set_nruns = 3
 odt.inputs.split_into_pad_runs = "mot_demean"
@@ -760,7 +764,7 @@ res = odt.run()
 
 
 # create censor file motion_${subj}_censor.1D, for censoring motion
-odt = afni.OneDToolPy()
+odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
 odt.inputs.in_file = 'dfile_rall.1D'
 odt.inputs.set_nruns = 3
 odt.inputs.censor_motion = (0.3, 'motion_{}'.format(sub))
@@ -775,7 +779,7 @@ res = odt.run()
 
 
 # combine multiple censor files
-eval = afni.Eval()
+eval = afni.Eval()# Evaluates an expression that may include columns of data from one or more text files
 eval.inputs.in_file_a = 'motion_{}_censor.1D'.format(sub)
 eval.inputs.in_file_b = 'outcount_{}_censor.1D'.format(sub)
 eval.inputs.expr = 'a*b'
@@ -796,7 +800,7 @@ set ktrs = `1d_tool.py -infile censor_${subj}_combined_2.1D              \
 
 # ------------------------------
 # run the regression analysis
-deconvolve = afni.Deconvolve()
+deconvolve = afni.Deconvolve() # Performs OLS regression given a 4D neuroimage file and stimulus timings
 deconvolve.inputs.in_files = ['pb04.{}.r{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
 deconvolve.inputs.out_file = 'stats'.format(sub)
 deconvolve.inputs.x1D_uncensored = 'X.nocensor.xmat.1D'
@@ -851,7 +855,7 @@ endif
 
 
 # display any large pairwise correlations from the X-matrix
-odt = afni.OneDToolPy()
+odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
 odt.inputs.in_file = 'X.xmat.1D'
 odt.inputs.show_cormat_warnings = True
 odt.inputs.out_file = "out.cormat_warn.txt"
@@ -863,7 +867,7 @@ res = odt.run()
 
 
 # display degrees of freedom info from X-matrix
-odt = afni.OneDToolPy()
+odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
 odt.inputs.in_file = 'X.xmat.1D'
 odt.inputs.show_df_info = True
 odt.inputs.out_file = "out.df_info.txt"
@@ -873,7 +877,7 @@ odt.cmdline
 res = odt.run() 
 
 # create an all_runs dataset to match the fitts, errts, etc.
-tcat = afni.TCat()
+tcat = afni.TCat() # Concatenate sub-bricks from input datasets into one big 3D+time dataset.
 tcat.inputs.in_files = ['pb04.{}.r{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
 tcat.inputs.out_file = "all_runs.{}".format(sub)
 tcat.cmdline
@@ -886,7 +890,7 @@ res = tcat.run()
 # create a temporal signal to noise ratio dataset 
 #    signal: if 'scale' block, mean should be 100
 #    noise : compute standard deviation of errts
-tcsb = afni.TCatSubBrick()
+tcsb = afni.TCatSubBrick() # allow sub-brick selection 
 tcsb.inputs.in_files = [('all_runs.{}+tlrc'.format(sub), "'[$ktrs]'")]
 tcsb.inputs.out_file = "rm.signal.all"
 tcsb.inputs.mean = True
@@ -894,7 +898,7 @@ tcsb.inputs.mean = True
 # 3dTstat -mean -prefix rm.signal.all all_runs.$subj+tlrc"[$ktrs]"
 res = tcsb.run() 
 
-tcsb = afni.TCatSubBrick()
+tcsb = afni.TCatSubBrick() # allow sub-brick selection 
 tcsb.inputs.in_files = [('errts.{}+tlrc'.format(sub), "'[$ktrs]'")]
 tcsb.inputs.out_file = "rm.noise.all"
 tcsb.inputs.stdev = True
@@ -903,7 +907,7 @@ tcsb.inputs.stdev = True
 res = tcsb.run() 
 
 
-calc = afni.Calc()
+calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
 calc.inputs.in_file_a = 'rm.signal.all+tlrc'
 calc.inputs.in_file_b = 'rm.noise.all+tlrc'
 calc.inputs.expr = 'a/b'
@@ -918,16 +922,16 @@ res = calc.run()
 # ---------------------------------------------------
 # compute and store GCOR (global correlation average)
 # (sum of squares of global mean of unit errts)
-tnorm = afni.TNorm()
+tnorm = afni.TNorm() # Shifts voxel time series from input so that seperate slices are aligned to the same temporal origin.
 tnorm.inputs.in_file = 'functional.nii'
 tnorm.inputs.norm2 = True
 tnorm.inputs.out_file = 'rm.errts.unit errts.{}+tlrc'.format(sub)
 tnorm.cmdline
 # should be
 # 3dTnorm -norm2 -prefix rm.errts.unit errts.${subj}+tlrc
-res = tshift.run()  
+res = tnorm.run()  
 
-maskave = afni.Maskave()
+maskave = afni.Maskave() # Computes average of all voxels in the input dataset which satisfy the criterion in the options list
 maskave.inputs.in_file = 'rm.errts.unit+tlrc'
 maskave.inputs.mask= 'full_mask.{}+tlrc'.format(sub)
 maskave.inputs.quiet= True
@@ -938,7 +942,7 @@ maskave.cmdline
 #          > mean.errts.unit.1D
 res = maskave.run()  
 
-tstat = afni.TStat()
+tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_files = 'mean.errts.unit.1D'
 tstat.inputs.out_file = "out.gcor.1D"
 tstat.sos = True
@@ -952,7 +956,7 @@ print("-- GCOR = `cat out.gcor.1D`")
 # ---------------------------------------------------
 # compute correlation volume
 # (per voxel: correlation with masked brain average)
-maskave = afni.Maskave()
+maskave = afni.Maskave() # Computes average of all voxels in the input dataset which satisfy the criterion in the options list
 maskave.inputs.in_file = ' errts.{}+tlrc'.format(sub)
 maskave.inputs.mask = 'full_mask.{}+tlrc'.format(sub)
 maskave.inputs.quiet = True
@@ -964,7 +968,7 @@ maskave.cmdline
 res = maskave.run()  
 
 
-tcorr1D = afni.TCorr1D()
+tcorr1D = afni.TCorr1D() # Computes the correlation coefficient between each voxel time series in the input 3D+time dataset.
 tcorr1D.inputs.xset= 'errts.{}+tlrc'.format(sub)
 tcorr1D.inputs.y_1d = 'mean.errts.1D'
 tcorr1D.inputs.out_file = 'corr_brain'
@@ -976,7 +980,7 @@ res = tcorr1D.run()
 
 
 # create fitts dataset from all_runs and errts
-calc = afni.Calc()
+calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
 calc.inputs.in_file_a = 'all_runs.{}+tlrc'.format(sub)
 calc.inputs.in_file_b = 'errts.{}+tlrc'.format(sub)
 calc.inputs.expr = 'a-b'
@@ -990,12 +994,16 @@ res = calc.run()
 
 # create ideal files for fixed response stim types
 cat1d = afni.Cat()
+# 1dcat takes as input one or more 1D files, and writes out a 1D file 
+# containing the side-by-side concatenation of all or a subset of the columns from the input files.
 cat1d.inputs.in_files = ["X.nocensor.xmat.1D'[12]'"]
 cat1d.inputs.out_file = 'ideal_vis.1D'
 cat1d.cmdline
 res = cat1d.run()  
 
 cat1d = afni.Cat()
+# 1dcat takes as input one or more 1D files, and writes out a 1D file 
+# containing the side-by-side concatenation of all or a subset of the columns from the input files.
 cat1d.inputs.in_files = ["X.nocensor.xmat.1D'[13]'"]
 cat1d.inputs.out_file = 'ideal_aud.1D'
 cat1d.cmdline
@@ -1005,7 +1013,7 @@ res = cat1d.run()
 # --------------------------------------------------
 # extract non-baseline regressors from the X-matrix,
 # then compute their sum
-odt = afni.OneDToolPy()
+odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
 odt.inputs.in_file = 'X.nocensor.xmat.1D'
 odt.inputs.write_xstim = 'X.stim.xmat.1D'
 odt.cmdline
@@ -1014,7 +1022,7 @@ odt.cmdline
 res = odt.run() 
 
 
-tstat = afni.TStat()
+tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_files = 'X.stim.xmat.1D'
 tstat.inputs.out_file = "sum_ideal.1D"
 tstat.sum = True
@@ -1037,7 +1045,7 @@ Path('blur.epits.1D').touch()
 
 # restrict to uncensored TRs, per run
 for run in runs:
-    odt = afni.OneDToolPy()
+    odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
     odt.inputs.in_file = 'X.xmat.1D'
     odt.show_trs_uncensored = 'encoded'
     odt.show_trs_run = run
@@ -1049,7 +1057,7 @@ for run in runs:
     trs = odt.run()
 
     if trs == "":
-        fwhm = afni.FWHMx()
+        fwhm = afni.FWHMx() # Unlike the older 3dFWHM, this program computes FWHMs for all sub-bricks in the input dataset, each one separately.
         fwhm.inputs.in_file = 'all_runs.{}+tlrc"[trs]"'.format(sub)
         fwhm.inputs.detrend = True
         fwhm.inputs.mask = "mask_epi_anat.{}+tlrc".format(sub)
@@ -1065,7 +1073,7 @@ for run in runs:
 
 
 # compute average FWHM blur (from every other row) and append
-tstat = afni.TStat()
+tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_files = "blur.epits.1D'{0..$(2)}'\'`"
 tstat.mean = True
 tstat.cmdline
@@ -1085,7 +1093,7 @@ Path('blur.errts.1D').touch()
 
 # restrict to uncensored TRs, per run
 for run in runs:
-    odt = afni.OneDToolPy()
+    odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
     odt.inputs.in_file = 'X.xmat.1D'
     odt.show_trs_uncensored = 'encoded'
     odt.show_trs_run = run
@@ -1097,7 +1105,7 @@ for run in runs:
     trs = odt.run()
 
     if trs == "":
-        fwhm = afni.FWHMx()
+        fwhm = afni.FWHMx() # Unlike the older 3dFWHM, this program computes FWHMs for all sub-bricks in the input dataset, each one separately.
         fwhm.inputs.in_file = 'errts.{}+tlrc"[trs]"'.format(sub)
         fwhm.inputs.detrend = True
         fwhm.inputs.mask = "mask_epi_anat.{}+tlrc".format(sub)
@@ -1111,7 +1119,7 @@ for run in runs:
         res = fwhm.run()  # doctest: +SKIP
 
 # compute average FWHM blur (from every other row) and append
-tstat = afni.TStat()
+tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_files = "blur.errts.1D'{0..$(2)}'\'`"
 tstat.mean = True
 tstat.cmdline
@@ -1124,7 +1132,7 @@ with open("blur_est.{}.1D".format(sub), "a") as f:
   print("{}    # errts FWHM blur estimates".format(blurs), file=f)
 
 # compute average ACF blur (from every other row) and append
-tstat = afni.TStat()
+tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_files = "blur.errts.1D'{1..$(2)}'\'`"
 tstat.mean = True
 tstat.cmdline
