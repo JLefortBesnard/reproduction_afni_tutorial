@@ -88,27 +88,53 @@ find_variance_lines.tcsh -polort 3 -nerode 2        \
 
 # ========================== auto block: outcount ==========================
 # QC: compute outlier fraction for each volume
-
+from pathlib import Path
+Path('out.pre_ss_warn.txt').touch()
 
 for run in runs:
-	toutcount = afni.OutlierCount(automask=True, fraction=True, polort=3, legendre=True)
-	toutcount.inputs.in_file = 'pb00.{}.r0{}.tcat+orig.BRIK'.format(sub, run)
-	toutcount.inputs.out_file = 'outcount.r0{}.1D'.format(run)
-	toutcount.cmdline
-	# should be
-	# 3dToutcount -automask -fraction -polort 3 -legendre                     \
+    toutcount = afni.OutlierCount(automask=True, fraction=True, polort=3, legendre=True)
+    toutcount.inputs.in_file = 'pb00.{}.r0{}.tcat+orig.BRIK'.format(sub, run)
+    toutcount.inputs.out_file = 'outcount.r0{}.1D'.format(run)
+    toutcount.cmdline
+    # should be
+    # 3dToutcount -automask -fraction -polort 3 -legendre                     \
     #			pb00.$subj.r$run.tcat+orig > outcount.r$run.1D
-	res = toutcount.run()
+    res = toutcount.run()
+
+    # censor outlier TRs per run, ignoring the first 0 TRs
+    # - censor when more than 0.05 of automask voxels are outliers
+    # - step() defines which TRs to remove via censoring
+    eval = afni.Eval()
+    eval.inputs.in_file_a = 'outcount.r0{}.1D'.format(run)
+    eval.inputs.expr = '1-step(a-0.05)'
+    eval.inputs.out_file =  'rm.out.cen.r0{}.1D'.format(run)
+    # eval needs an existing file name
+    Path('rm.out.cen.r0{}.1D'.format(run)).touch()
+    eval.cmdline
+    # should be:
+    # 1deval -a outcount.r$run.1D -expr "1-step(a-0.05)" > rm.out.cen.r$run.1D
+    res = eval.run()  # doctest: +SKIP
 
 
-	"""missing
-	1deval -a outcount.r$run.1D -expr "1-step(a-0.05)" > rm.out.cen.r$run.1D
+    ###############
+    # NOT WORKING #
+    # err = "{0}" #
+    ###############
 
     # outliers at TR 0 might suggest pre-steady state TRs
-    if ( `1deval -a outcount.r$run.1D"{0}" -expr "step(a-0.4)"` ) then
-        echo "** TR #0 outliers: possible pre-steady state TRs in run $run" \
-            >> out.pre_ss_warn.txt
-    """
+    eval = afni.Eval()
+    eval.inputs.in_file_a = 'outcount.r0{}.1D'.format(run)
+    eval.inputs.single_idx = 0
+    eval.inputs.expr = 'step(a-0.4)'
+    eval.cmdline
+    # should be:
+    # ( `1deval -a outcount.r$run.1D"{0}" -expr "step(a-0.4)"` )
+    test = eval.run()
+    if test:
+        with open("out.pre_ss_warn.txt", "a") as f:
+            print("** TR #0 outliers: possible pre-steady state TRs in run {}".format(run), file=f)
+
+
 
 # catenate outlier counts into a single time series
 filenames = ['outcount.r01.1D', 'outcount.r02.1D', 'outcount.r03.1D']
@@ -117,19 +143,27 @@ with open('outcount_rall.1D', 'w') as outfile:
         with open(fname) as infile:
             outfile.write(infile.read())
 
-"""missing
+
 # catenate outlier censor files into a single time series
-cat rm.out.cen.r*.1D > outcount_${subj}_censor.1D
+filenames = ['rm.out.cen.r01.1D', 'rm.out.cen.r02.1D', 'rm.out.cen.r03.1D']
+# cat rm.out.cen.r*.1D > outcount_${subj}_censor.1D
+with open('outcount_{}_censor.1D'.format(sub), 'w') as outfile:
+    for fname in filenames:
+        with open(fname) as infile:
+            outfile.write(infile.read())
 
 
-"""
+
+
 
 # get run number and TR index for minimum outlier volume
 tstat = afni.TStat()
 tstat.inputs.in_file = 'outcount_rall.1D'
 tstat.inputs.args = '-argmin'
-tstat.inputs.out_file = 'stats'
+tstat.inputs.out_file = '-'
 tstat.cmdline
+# should be
+# set minindex = `3dTstat -argmin -prefix - outcount_rall.1D\'`
 minindex = tstat.run()
 
 
@@ -904,14 +938,14 @@ maskave.cmdline
 #          > mean.errts.unit.1D
 res = maskave.run()  
 
-tcat = afni.TCat()
-tcat.inputs.in_files = ['pb04.{}.r{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
-tcat.inputs.out_file = "out.gcor.1D"
-tcat.sos = True
-tcat.cmdline
+tstat = afni.TStat()
+tstat.inputs.in_files = 'mean.errts.unit.1D'
+tstat.inputs.out_file = "out.gcor.1D"
+tstat.sos = True
+tstat.cmdline
 # should be
 # 3dTstat -sos -prefix - mean.errts.unit.1D\' > out.gcor.1D'
-res = tcat.run()
+res = tstat.run()
 print("-- GCOR = `cat out.gcor.1D`")
 
 
@@ -941,92 +975,183 @@ res = tcorr1D.run()
 
 
 
-
-###########################
-# PYTHON SCRIPT ENDS HERE #
-###########################
-
-
-
 # create fitts dataset from all_runs and errts
-3dcalc -a all_runs.$subj+tlrc -b errts.${subj}+tlrc -expr a-b            \
-       -prefix fitts.$subj
+calc = afni.Calc()
+calc.inputs.in_file_a = 'all_runs.{}+tlrc'.format(sub)
+calc.inputs.in_file_b = 'errts.{}+tlrc'.format(sub)
+calc.inputs.expr = 'a-b'
+calc.inputs.out_file = 'fitts.{}'.format(sub)
+calc.cmdline
+# should be:
+# 3dcalc -a all_runs.$subj+tlrc -b errts.${subj}+tlrc -expr a-b            \
+#        -prefix fitts.$subj
+res = calc.run()
+
 
 # create ideal files for fixed response stim types
-1dcat X.nocensor.xmat.1D'[12]' > ideal_vis.1D
-1dcat X.nocensor.xmat.1D'[13]' > ideal_aud.1D
+cat1d = afni.Cat()
+cat1d.inputs.in_files = ["X.nocensor.xmat.1D'[12]'"]
+cat1d.inputs.out_file = 'ideal_vis.1D'
+cat1d.cmdline
+res = cat1d.run()  
+
+cat1d = afni.Cat()
+cat1d.inputs.in_files = ["X.nocensor.xmat.1D'[13]'"]
+cat1d.inputs.out_file = 'ideal_aud.1D'
+cat1d.cmdline
+res = cat1d.run()  
+
 
 # --------------------------------------------------
 # extract non-baseline regressors from the X-matrix,
 # then compute their sum
-1d_tool.py -infile X.nocensor.xmat.1D -write_xstim X.stim.xmat.1D
-3dTstat -sum -prefix sum_ideal.1D X.stim.xmat.1D
+odt = afni.OneDToolPy()
+odt.inputs.in_file = 'X.nocensor.xmat.1D'
+odt.inputs.write_xstim = 'X.stim.xmat.1D'
+odt.cmdline
+# should be:
+# 1d_tool.py -infile X.nocensor.xmat.1D -write_xstim X.stim.xmat.1D
+res = odt.run() 
+
+
+tstat = afni.TStat()
+tstat.inputs.in_files = 'X.stim.xmat.1D'
+tstat.inputs.out_file = "sum_ideal.1D"
+tstat.sum = True
+tstat.cmdline
+# should be
+# 3dTstat -sum -prefix sum_ideal.1D X.stim.xmat.1D
+res = tstat.run()
 
 # ============================ blur estimation =============================
 # compute blur estimates
-touch blur_est.$subj.1D   # start with empty file
+from pathlib import Path
+Path('blur_est.{}.1D'.format(sub)).touch() # start with empty file
 
 # create directory for ACF curve files
-mkdir files_ACF
+os.mkdir('files_ACF')
 
 # -- estimate blur for each run in epits --
-touch blur.epits.1D
+Path('blur.epits.1D').touch()
+
 
 # restrict to uncensored TRs, per run
-foreach run ( $runs )
-    set trs = `1d_tool.py -infile X.xmat.1D -show_trs_uncensored encoded \
-                          -show_trs_run $run`
-    if ( $trs == "" ) continue
-    3dFWHMx -detrend -mask mask_epi_anat.$subj+tlrc                      \
-            -ACF files_ACF/out.3dFWHMx.ACF.epits.r$run.1D                \
-            all_runs.$subj+tlrc"[$trs]" >> blur.epits.1D
-end
+for run in runs:
+    odt = afni.OneDToolPy()
+    odt.inputs.in_file = 'X.xmat.1D'
+    odt.show_trs_uncensored = 'encoded'
+    odt.show_trs_run = run
+    odt.inputs.write_xstim = 'X.stim.xmat.1D'
+    odt.cmdline
+    # should be:
+    # set trs = `1d_tool.py -infile X.xmat.1D -show_trs_uncensored encoded \
+    #                       -show_trs_run $run`
+    trs = odt.run()
+
+    if trs == "":
+        fwhm = afni.FWHMx()
+        fwhm.inputs.in_file = 'all_runs.{}+tlrc"[trs]"'.format(sub)
+        fwhm.inputs.detrend = True
+        fwhm.inputs.mask = "mask_epi_anat.{}+tlrc".format(sub)
+        fwhm.inputs.ACF = 'files_ACF/out.3dFWHMx.ACF.epits.r{}.1D'.format(run)
+        fwhm.inputs.out_file = 'blur.epits.1D'
+        fwhm.cmdline
+        # should be
+        # 3dFWHMx -detrend -mask mask_epi_anat.$subj+tlrc                      \
+        # -ACF files_ACF/out.3dFWHMx.ACF.epits.r$run.1D                \
+        # all_runs.$subj+tlrc"[$trs]" >> blur.epits.1D
+        res = fwhm.run()  # doctest: +SKIP
+
+
 
 # compute average FWHM blur (from every other row) and append
-set blurs = ( `3dTstat -mean -prefix - blur.epits.1D'{0..$(2)}'\'` )
-echo average epits FWHM blurs: $blurs
-echo "$blurs   # epits FWHM blur estimates" >> blur_est.$subj.1D
+tstat = afni.TStat()
+tstat.inputs.in_files = "blur.epits.1D'{0..$(2)}'\'`"
+tstat.mean = True
+tstat.cmdline
+# should be
+# set blurs = ( `3dTstat -mean -prefix - blur.epits.1D'{0..$(2)}'\'` )
+blurs = tstat.run()
 
-# compute average ACF blur (from every other row) and append
-set blurs = ( `3dTstat -mean -prefix - blur.epits.1D'{1..$(2)}'\'` )
-echo average epits ACF blurs: $blurs
-echo "$blurs   # epits ACF blur estimates" >> blur_est.$subj.1D
+print("average epits FWHM blurs: {}".format(blurs))
+with open("blur_est.{}.1D".format(sub), "a") as f:
+  print("{}    # epits FWHM blur estimates".format(blurs), file=f)
+
+
 
 # -- estimate blur for each run in errts --
-touch blur.errts.1D
+Path('blur.errts.1D').touch()
+
 
 # restrict to uncensored TRs, per run
-foreach run ( $runs )
-    set trs = `1d_tool.py -infile X.xmat.1D -show_trs_uncensored encoded \
-                          -show_trs_run $run`
-    if ( $trs == "" ) continue
-    3dFWHMx -detrend -mask mask_epi_anat.$subj+tlrc                      \
-            -ACF files_ACF/out.3dFWHMx.ACF.errts.r$run.1D                \
-            errts.${subj}+tlrc"[$trs]" >> blur.errts.1D
-end
+for run in runs:
+    odt = afni.OneDToolPy()
+    odt.inputs.in_file = 'X.xmat.1D'
+    odt.show_trs_uncensored = 'encoded'
+    odt.show_trs_run = run
+    odt.inputs.write_xstim = 'X.stim.xmat.1D'
+    odt.cmdline
+    # should be:
+    # set trs = `1d_tool.py -infile X.xmat.1D -show_trs_uncensored encoded \
+    #                   -show_trs_run $run`
+    trs = odt.run()
+
+    if trs == "":
+        fwhm = afni.FWHMx()
+        fwhm.inputs.in_file = 'errts.{}+tlrc"[trs]"'.format(sub)
+        fwhm.inputs.detrend = True
+        fwhm.inputs.mask = "mask_epi_anat.{}+tlrc".format(sub)
+        fwhm.inputs.ACF = 'files_ACF/out.3dFWHMx.ACF.errts.r{}.1D'.format(run)
+        fwhm.inputs.out_file = 'blur.errts.1D'
+        fwhm.cmdline
+        # should be
+        # 3dFWHMx -detrend -mask mask_epi_anat.$subj+tlrc                      \
+        #         -ACF files_ACF/out.3dFWHMx.ACF.errts.r$run.1D                \
+        #         errts.${subj}+tlrc"[$trs]" >> blur.errts.1D
+        res = fwhm.run()  # doctest: +SKIP
 
 # compute average FWHM blur (from every other row) and append
-set blurs = ( `3dTstat -mean -prefix - blur.errts.1D'{0..$(2)}'\'` )
-echo average errts FWHM blurs: $blurs
-echo "$blurs   # errts FWHM blur estimates" >> blur_est.$subj.1D
+tstat = afni.TStat()
+tstat.inputs.in_files = "blur.errts.1D'{0..$(2)}'\'`"
+tstat.mean = True
+tstat.cmdline
+# should be
+# set blurs = ( `3dTstat -mean -prefix - blur.errts.1D'{0..$(2)}'\'` )
+blurs = tstat.run()
+
+print("average errts FWHM blurs: {}".format(blurs))
+with open("blur_est.{}.1D".format(sub), "a") as f:
+  print("{}    # errts FWHM blur estimates".format(blurs), file=f)
 
 # compute average ACF blur (from every other row) and append
-set blurs = ( `3dTstat -mean -prefix - blur.errts.1D'{1..$(2)}'\'` )
-echo average errts ACF blurs: $blurs
-echo "$blurs   # errts ACF blur estimates" >> blur_est.$subj.1D
+tstat = afni.TStat()
+tstat.inputs.in_files = "blur.errts.1D'{1..$(2)}'\'`"
+tstat.mean = True
+tstat.cmdline
+# should be
+# set blurs = ( `3dTstat -mean -prefix - blur.errts.1D'{1..$(2)}'\'` )
+blurs = tstat.run()
+
+print("average errts FWHM blurs: {}".format(blurs))
+with open("blur_est.{}.1D".format(sub), "a") as f:
+  print("{}    # errts ACF blur estimates".format(blurs), file=f)
 
 
 # ========================= auto block: QC_review ==========================
 # generate quality control review scripts and HTML report
 
+"""missing
 # generate a review script for the unprocessed EPI data
 gen_epi_review.py -script @epi_review.$subj \
     -dsets pb00.$subj.r*.tcat+orig.HEAD
+"""
+
 
 # -------------------------------------------------
 # generate scripts to review single subject results
 # (try with defaults, but do not allow bad exit status)
 
+"""missing
 # write AP uvars into a simple txt file
 cat << EOF > out.ap_uvars.txt
   mot_limit       : 0.3
@@ -1037,7 +1162,11 @@ cat << EOF > out.ap_uvars.txt
   ss_review_dset  : out.ss_review.$subj.txt
   vlines_tcat_dir : vlines.pb00.tcat
 EOF
+"""
 
+
+
+"""missing
 # and convert the txt format to JSON
 cat out.ap_uvars.txt | afni_python_wrapper.py -eval "data_file_to_json()" \
   > out.ap_uvars.json
@@ -1046,12 +1175,17 @@ cat out.ap_uvars.txt | afni_python_wrapper.py -eval "data_file_to_json()" \
 gen_ss_review_scripts.py -exit0        \
     -init_uvars_json out.ap_uvars.json \
     -write_uvars_json out.ss_review_uvars.json
+"""
+
 
 # ========================== auto block: finalize ==========================
 
+"""missing
 # remove temporary files
 \rm -f rm.*
+"""
 
+"""missing
 # if the basic subject review script is here, run it
 # (want this to be the last text output)
 if ( -e @ss_review_basic ) then
@@ -1074,7 +1208,7 @@ cd ..
 
 echo "execution finished: `date`"
 
-
+"""
 
 
 # ==========================================================================
@@ -1095,6 +1229,7 @@ echo "execution finished: `date`"
 #     -regress_make_ideal_sum sum_ideal.1D -regress_est_blur_epits            \
 #     -regress_est_blur_errts -regress_run_clustsim no -html_review_style     \
 #     pythonic -execute
+
 
 
 
