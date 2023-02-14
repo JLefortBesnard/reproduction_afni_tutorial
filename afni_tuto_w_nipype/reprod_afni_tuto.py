@@ -13,7 +13,6 @@ import filecmp
 
 
 # start over
-
 chdir("/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/")
 shutil.rmtree('FT.results')
 
@@ -64,23 +63,23 @@ def compare2text(txt1_path, txt2_path):
     f2_data = f2.readlines()
     diff = 0
     try:
-        print("file 1 :")
-        for i in range(5):
-            print(f1_data[i])
+        print("files' 3 first lines :")
+        for i in range(3):
+            print("f1 : ", f1_data[i])
+            print("f2 : ", f2_data[i])
+            if f1_data[i] != f2_data[i]:
+                diff = 1
+        print('----#####-----')
+        print(diff == 0)
+        print('----#####-----')
     except:
-        print("Less than 5 lines")
-    try:
-        print("file 2 :")
-        for i in range(5):
-            print(f2_data[i])
-    except:
-        print("Less than 5 lines")
+        print("Less than 3 lines")
+        print('----#####-----')
+        print(filecmp.cmp(txt1_path, txt2_path))
+        print('----#####-----')
     # closing files
     f1.close()                                      
     f2.close()
-    print('----#####-----')
-    print(filecmp.cmp(txt1_path, txt2_path))
-    print('----#####-----')
     print("****** END ******")
     time.sleep(2)
 
@@ -94,13 +93,13 @@ sub = 'FT'
 output_dir = 'FT.results'
 # set list of runs
 runs = [1, 2, 3]
+
+# path to check with afni results
 path_afni_preprocessed_files = "/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_afni/FT.results/"
 
 # create results and stimuli directories
 pathlib.Path(output_dir).mkdir(parents=True, exist_ok=True)
 pathlib.Path(opj(output_dir, 'stimuli')).mkdir(parents=True, exist_ok=True)
-
-
 
 # copy stim files into stimulus directory
 src1 = opj(sub, "AV1_vis.txt") 
@@ -127,6 +126,9 @@ brik2_path_afni = '/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_afni/FT
 compare2brik(brik1_path_nipype, brik2_path_afni) # True
 compare2brik(src4, "FT.results/TT_N27+tlrc.BRIK.gz") # True
 
+
+
+
 # ============================ auto block: tcat ============================ # ERROR
 # apply 3dTcat to copy input dsets to results dir,
 # while removing the first 2 TRs
@@ -148,13 +150,9 @@ tr_counts = [150, 150, 150]
 
 # -------------------------------------------------------
 # enter the results directory (can begin processing data)
-
 chdir(output_dir)
 
-
-
-
-"""missing
+"""missing thus copied
 # ---------------------------------------------------------
 # QC: compute correlations with spherical ~averages
 @radial_correlate -nfirst 0 -polort 3 -do_clean yes \
@@ -179,13 +177,13 @@ shutil.copytree(src, dst)
 
 
 
+
+
+
 # ========================== auto block: outcount ========================== # ERROR
 # QC: compute outlier fraction for each volume
 
 Path('out.pre_ss_warn.txt').touch()
-
-# ERROR : source code string cannot contain null bytes
-%run /home/jlefortb/abin/1deval -a /home/jlefortb/reproduction_afni_tutorial/afnit_tuto_w_afni/FT.results/outcount.r01.1D -expr "1-step(a-0.05)" > rm.out.cen.r01.1D
 
 for run in runs:
     # Calculates number of ‘outliers’ at each time point of a a 3D+time dataset.
@@ -251,7 +249,7 @@ with open('outcount_{}_censor.1D'.format(sub), 'w') as outfile:
         with open(fname) as infile:
             outfile.write(infile.read()+'\n')
 compare2text(opj(path_afni_preprocessed_files, 'outcount_{}_censor.1D'.format(sub)), 'outcount_{}_censor.1D'.format(sub))
-
+# output differs "1 1 1 ..." and "      ..." 
 
 # get run number and TR index for minimum outlier volume
 with open('/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_afni/FT.results/outcount_rall.1D') as f:
@@ -273,6 +271,9 @@ else:
 with open("out.min_outlier.txt", "a") as f:
   print("min outlier: run 0{}, TR {}".format(run_nb, minoutr), file=f)
 compare2text(opj(path_afni_preprocessed_files, "out.min_outlier.txt"), "out.min_outlier.txt")
+
+
+
 
 
 # ================================= tshift ================================= # WORKING SMOOTHLY
@@ -307,14 +308,16 @@ compare2brik("/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_afni/FT.resu
 
 
 
+
+
+
 # ================================= align ================================== # ERROR
 # for e2a: compute anat alignment transformation to EPI registration base
 # (new anat will be intermediate, stripped, FT_anat_ns+orig)
 # run (localized) uniformity correction on EPI base
 
 
-
-"""missing
+"""missing thus copy
 # should be :
 # 3dLocalUnifize -input vr_base_min_outlier+orig -prefix \
 #     vr_base_min_outlier_unif
@@ -345,7 +348,7 @@ compare2brik("/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_afni/FT.resu
 al_ea = afni.AlignEpiAnatPy()
 al_ea.inputs.anat2epi = True
 al_ea.inputs.anat = "FT_anat+orig.BRIK"
-al_ea.inputs.save_skullstrip = True
+al_ea.inputs.save_skullstrip = True # causing trouble
 al_ea.inputs.suffix = "_al_junk"
 al_ea.inputs.in_file = "vr_base_min_outlier_unif+orig.BRIK"
 al_ea.inputs.epi_base = 0
@@ -416,7 +419,7 @@ res = cmv.run()
 compare2text(opj(path_afni_preprocessed_files, 'warp.anat.Xat.1D'), 'warp.anat.Xat.1D')
 
 
-# ================================= volreg =================================
+# ================================= volreg ================================= WORK SMOOTHLY
 # align each dset to base volume, to anat, warp to tlrc space
 
 # verify that we have a +tlrc warp dataset
@@ -521,7 +524,7 @@ for run in runs:
     # should be
     # 3dTstat -min -prefix rm.epi.min.r$run rm.epi.1.r$run+tlrc
     res = tstat.run()
-
+# CANNOT COMPARE WITH AFNI PREPROCESSED DATA BECAUSE THESE TEMPORARY FILES WERE REMOVED
 
 
 # make a single file of registration params
@@ -535,15 +538,13 @@ with open('dfile_rall.1D', 'w') as outfile:
 compare2text(opj(path_afni_preprocessed_files, 'dfile_rall.1D'), 'dfile_rall.1D')
 
 
-# WORK UNTIL HERE
-##################
-# CURRENTLY HERE #
-##################
 
-from glob import glob
-# ----------------------------------------
+# ---------------------------------------- # ERROR
 # create the extents mask: mask_epi_extents+tlrc
 # (this is a mask of voxels that have valid data at every TR)
+
+### ERROR, takes only two inputs, require 3
+"""
 means = afni.Means() # Takes the voxel-by-voxel mean of all input datasets using 3dMean
 means.inputs.datum = 'short'
 means.inputs.in_file_a = 'rm.epi.min.r01+tlrc.HEAD'
@@ -559,18 +560,18 @@ means.inputs.in_file_b = 'rm.epi.min.r03+tlrc.HEAD'
 means.inputs.out_file =  'rm.epi.mean+tlrc.BRIK.gz'
 means.cmdline
 res = means.run() 
-
-# should be
-!3dMean -datum short -prefix rmtest.epi.mean rm.epi.min.r*.HEAD 
+"""
+# Thus run original command
+!3dMean -datum short -prefix rm.epi.mean rm.epi.min.r*.HEAD 
 
 
 calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
-calc.inputs.in_file_a = 'rm.epi.mean+tlrc'
+calc.inputs.in_file_a = 'rm.epi.mean+tlrc.BRIK.gz'
 calc.inputs.expr='step(a-0.999)'
 calc.inputs.out_file =  'mask_epi_extents'
 calc.cmdline  # doctest: +ELLIPSIS
 # should be
-# 3dcalc -a rm.epi.mean+tlrc -expr 'step(a-0.999)' -prefix mask_epi_extents
+# 3dcalc -a rm.epi.mean+tlrc -expr 'step(a-0.999)' -prefix masktest_epi_extents
 res = calc.run()  # doctest: +SKIP
 
 
@@ -578,20 +579,24 @@ res = calc.run()  # doctest: +SKIP
 # (delete any time series with missing data)
 for run in runs:
     calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
-    calc.inputs.in_file_a = 'rm.epi.nomask.r{}+tlrc'.format(run)
-    calc.inputs.in_file_b = 'mask_epi_extents+tlrc'
+    calc.inputs.in_file_a = 'rm.epi.nomask.r0{}+tlrc.BRIK'.format(run)
+    calc.inputs.in_file_b = 'mask_epi_extents+tlrc.BRIK.gz'
     calc.inputs.expr='a*b'
-    calc.inputs.out_file =  'pb02.{}.r{}.volreg'.format(sub, run)
+    calc.inputs.out_file =  'pb02.{}.r0{}.volreg+tlrc.BRIK'.format(sub, run)
     calc.cmdline  # doctest: +ELLIPSIS
     # should be
     # 3dcalc -a rm.epi.nomask.r$run+tlrc -b mask_epi_extents+tlrc \
     #        -expr 'a*b' -prefix pb02.$subj.r$run.volreg
     res = calc.run()  # doctest: +SKIP
+    print("success")
 
+for run in runs:
+    compare2brik(opj(path_afni_preprocessed_files, 'pb02.FT.r0{}.volreg+tlrc.BRIK'.format(run)), 'pb02.FT.r0{}.volreg+tlrc.BRIK'.format(run)) # TRUE
 
-
+#### WORK UNTIL HERE ###
 # warp the volreg base EPI dataset to make a final version
-cmv = afni.Bucket() # Concatenate sub-bricks from input datasets into one big ‘bucket’ dataset.
+
+cmv = afni.CatMatvec() # Concatenate sub-bricks from input datasets into one big ‘bucket’ dataset.
 cmv.inputs.in_file = [('FT_anat_ns+tlrc::WARP_DATA','I'), ('FT_anat_al_junk_mat.aff12.1D','I')]
 cmv.inputs.out_file = 'mat.basewarp.aff12.1D'
 cmv.inputs.oneline = True
@@ -601,14 +606,14 @@ cmv.cmdline
 #            FT_anat_ns+tlrc::WARP_DATA -I                        \
 #            FT_anat_al_junk_mat.aff12.1D -I  > mat.basewarp.aff12.1D
 res = cmv.run()
+compare2text(opj(path_afni_preprocessed_files, 'mat.basewarp.aff12.1D'), 'mat.basewarp.aff12.1D')
 
 
 # warp the all-1 dataset for extents masking 
 allineate = afni.Allineate() # Program to align one dataset (the ‘source’) to a base dataset
-allineate.args = '-final NN -mast_dxyz 2.5'
-allineate.quiet = True
-allineate.reference = 'FT_anat_ns+tlrc'
-allineate.inputs.in_file = 'vr_base_min_outlier+orig'
+allineate.inputs.args = '-final NN -mast_dxyz 2.5'
+allineate.inputs.reference = 'FT_anat_ns+tlrc.BRIK'
+allineate.inputs.in_file = 'vr_base_min_outlier+orig.BRIK'
 allineate.inputs.in_matrix = 'mat.basewarp.aff12.1D'
 allineate.inputs.out_file = 'final_epi_vr_base_min_outlier'
 allineate.cmdline
@@ -619,48 +624,55 @@ allineate.cmdline
 #             -mast_dxyz 2.5                                      \
 #             -prefix final_epi_vr_base_min_outlier
 res = allineate.run()
-
+compare2brik(opj(path_afni_preprocessed_files, "final_epi_vr_base_min_outlier+tlrc.BRIK"),"final_epi_vr_base_min_outlier+tlrc.BRIK") 
+# FALSE..
 
 
 # create an anat_final dataset, aligned with stats
 copy3d=  afni.Copy() # Copies an image of one type to an image of the same or different type
-copy3d.inputs.in_file = "FT_anat_ns+tlrc"
+copy3d.inputs.in_file = "FT_anat_ns+tlrc.BRIK"
 copy3d.inputs.out_file = "anat_final.{}".format(sub)
 copy3d.cmdline
 # should be 
 # 3dcopy FT_anat_ns+tlrc anat_final.$subj
 res = copy3d.run()
 
+compare2brik(opj(path_afni_preprocessed_files, "anat_final.FT+tlrc.BRIK"),"anat_final.FT+tlrc.BRIK") # TRUE
+
+"""allineate.inputs.allcostx is not working
 # record final registration costs
 allineate = afni.Allineate() # Program to align one dataset (the ‘source’) to a base dataset
-allineate.quiet = True
-allineate.args = "-allcostX"
-allineate.reference = 'final_epi_vr_base_min_outlier+tlrc'
-allineate.inputs.in_file = 'anat_final.{}+tlrc'.format(sub)
 allineate.inputs.allcostx = 'out.allcostX.txt'
+allineate.inputs.reference = 'final_epi_vr_base_min_outlier+tlrc.BRIK'
+allineate.inputs.in_file = 'anat_final.{}+tlrc.BRIK'.format(sub)
 allineate.cmdline
 # should be
 # 3dAllineate -base final_epi_vr_base_min_outlier+tlrc -allcostX  \
 #             -input anat_final.$subj+tlrc |& tee out.allcostX.txt
 res = allineate.run()
+"""
+!3dAllineate -base final_epi_vr_base_min_outlier+tlrc -allcostX  \
+            -input anat_final.FT+tlrc |& tee out.allcostX.txt
 
-
+compare2text(opj(path_afni_preprocessed_files, 'out.allcostX.txt'), 'out.allcostX.txt')
 
 
 
 # --------------------------------------
 # create a TSNR dataset, just from run 1
 tstat = afni.TStat() # Compute voxel-wise statistics
-tstat.inputs.in_file = 'rm.signal.vreg.r01'
+tstat.inputs.in_file = 'pb02.{}.r01.volreg+tlrc.BRIK'.format(sub)
 tstat.inputs.args = '-mean'
-tstat.inputs.out_file = 'pb02.{}.r01.volreg+tlrc'.format(sub)
+tstat.inputs.out_file = 'rm.signal.vreg.r01'
 tstat.cmdline
 # should be
 # 3dTstat -mean -prefix rm.signal.vreg.r01 pb02.$subj.r01.volreg+tlrc
 res = tstat.run()
 
+
+
 detrend = afni.Detrend()
-detrend.inputs.in_file = 'pb02.{}.r01.volreg+tlrc'.format(sub)
+detrend.inputs.in_file = 'pb02.{}.r01.volreg+tlrc.BRIK'.format(sub)
 detrend.inputs.args = '-polort 3 -overwrite'
 detrend.inputs.outputtype = 'AFNI'
 detrend.inputs.out_file = 'rm.noise.det'
@@ -671,9 +683,9 @@ res = detrend.run()  # doctest: +SKIP
 
 
 tstat = afni.TStat() # Compute voxel-wise statistics
-tstat.inputs.in_file = 'rm.noise.vreg.r01'
+tstat.inputs.in_file = 'rm.noise.det+tlrc.BRIK'
 tstat.inputs.args = '-stdev'
-tstat.inputs.out_file = 'rm.noise.det+tlrc'
+tstat.inputs.out_file = 'rm.noise.vreg.r01'
 tstat.cmdline
 # should be
 # 3dTstat -stdev -prefix rm.noise.vreg.r01 rm.noise.det+tlrc
@@ -681,9 +693,9 @@ res = tstat.run()
 
 
 calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
-calc.inputs.in_file_a = 'rm.signal.vreg.r01+tlrc'
-calc.inputs.in_file_b = 'rm.noise.vreg.r01+tlrc'
-calc.inputs.in_file_c = 'mask_epi_extents+tlrc'
+calc.inputs.in_file_a = 'rm.signal.vreg.r01+tlrc.BRIK'
+calc.inputs.in_file_b = 'rm.noise.vreg.r01+tlrc.BRIK'
+calc.inputs.in_file_c = 'mask_epi_extents+tlrc.BRIK.gz'
 calc.inputs.expr='c*a/b'
 calc.inputs.out_file =  'TSNR.vreg.r01.{}'.format(sub)
 calc.cmdline
@@ -694,15 +706,16 @@ calc.cmdline
 #        -expr 'c*a/b' -prefix TSNR.vreg.r01.$subj
 res = calc.run() 
 
+compare2brik(opj(path_afni_preprocessed_files, "TSNR.vreg.r01.FT+tlrc.BRIK"),"TSNR.vreg.r01.FT+tlrc.BRIK") # TRUE
+
 
 
 # -----------------------------------------
 # warp anat follower datasets (affine)
 # warp follower dataset FT_anat+orig
 allineate = afni.Allineate() # Program to align one dataset (the ‘source’) to a base dataset
-allineate.quiet = True
-allineate.inputs.in_file = 'FT_anat+orig'
-allineate.inputs.master = 'anat_final.{}}+tlrc'.format(sub)
+allineate.inputs.in_file = 'FT_anat+orig.BRIK'
+allineate.inputs.master = 'anat_final.{}+tlrc.BRIK'.format(sub)
 allineate.inputs.final_interpolation = 'wsinc5'
 allineate.inputs.in_matrix = 'warp.anat.Xat.1D'
 allineate.inputs.out_file = 'anat_w_skull_warped'
@@ -713,6 +726,13 @@ allineate.cmdline
 #             -final wsinc5 -1Dmatrix_apply warp.anat.Xat.1D      \
 #             -prefix anat_w_skull_warped
 res = allineate.run()
+
+compare2brik(opj(path_afni_preprocessed_files, "anat_w_skull_warped+tlrc.BRIK"),"anat_w_skull_warped+tlrc.BRIK") # TRUE
+
+#####################
+## WORK UNTILL HERE #
+#####################
+
 
 # ---------------------------------------------------------
 
