@@ -16,7 +16,7 @@ from nipype.interfaces.afni import OutlierCount
 from nipype import Node, Function, Workflow,IdentityInterface
 import nipype.interfaces.afni as afni
 from nipype.interfaces.io import SelectFiles, DataSink
-
+import filecmp
 
 
 
@@ -174,8 +174,9 @@ are removed and the file is saved as pb00..tcat.+orig.brik
 # # apply 3dTcat to copy input dsets to results dir,
 # # while removing the first 2 TRs
 # run = 1
-# tcsb_node = Node(TCatSubBrick(in_files=[(abspath('FT/FT_epi_r{}+orig.BRIK'.format(run)), "'[2..$]'")]), name="tcsb_node") # allow sub-brick selection 
-# tcsb_node.inputs.out_file = opj(output_dir, "pb00.{}.r0{}.tcat".format(sub, run))
+# tcsb_node = Node(afni.TCatSubBrick(), name="tcsb_node") # allow sub-brick selection 
+# tcsb_node.inputs.in_files = [(abspath('FT/FT_epi_r01+orig.BRIK'), "'[2..$]'")]
+# tcsb_node.inputs.out_file = opj(output_dir, "pb00.FT.r01.tcat")
 # tcsb_res = tcsb_node.run()
 
 
@@ -272,7 +273,9 @@ toutcount_node.inputs.polort = 3
 toutcount_node.inputs.legendre = True
 toutcount_node.inputs.out_file = 'outcount.1D'
 
-
+# create a function her eis necessary because of the AFNI evel function requirement to 
+# have its output being an already existing file
+# thus needs to be create before running the worflow
 def eval_node(path_to_modify):
     from pathlib import Path
     from os.path import join as opj
@@ -431,12 +434,15 @@ tshift.inputs.args = '-quintic'
 tshift.inputs.tzero = 0
 tshift.inputs.out_file = 'pb01.tshift+orig.BRIK'
 
+# build workfow
 wf_run = Workflow(name="shift_ts")
 wf_run.base_dir = '.'
 wf_run.connect([(infosource, tshift, [("run_nb", "in_file")]),
                 ])
 wf_run.write_graph("workflow_graph.dot")
 wf_run.run()
+
+
 
 #####################################
 #####################################
@@ -654,24 +660,6 @@ assert exists("FT_anat_ns+tlrc.HEAD"), "** missing +tlrc warp dataset: FT_anat_n
 # part factorized
 ######################################
 ######################################
-
-
-infosource.iterables = [('run_nb', [abspath('pb00.{}.r0{}.tcat+orig.BRIK'.format('FT', run)) for run in runs])]
-
-# Shifts voxel time series from input so that seperate slices are aligned to the same temporal origin.
-tshift = Node(afni.TShift(), name="tshift")
-tshift.inputs.args = '-quintic'
-tshift.inputs.tzero = 0
-tshift.inputs.out_file = 'pb01.tshift+orig.BRIK'
-
-wf_run = Workflow(name="shift_ts")
-wf_run.base_dir = '.'
-wf_run.connect([(infosource, tshift, [("run_nb", "in_file")]),
-                ])
-wf_run.write_graph("workflow_graph.dot")
-wf_run.run()
-
-
 
 
 # from nipype.interfaces.afni import Volreg, Calc
@@ -912,65 +900,40 @@ res = means.run()
 
 #####################################
 #####################################
-# part NOT factorized
+# part factorized
 ######################################
 ######################################
 
-# calc = Node(afni.Calc(), name='calc') # This program does voxel-by-voxel arithmetic on 3D datasets.
-# calc.inputs.in_file_a = abspath('rm.epi.mean+tlrc.BRIK.gz')
-# calc.inputs.expr='step(a-0.999)'
-# calc.inputs.out_file =  'mask_epi_extents+tlrc'
-
-# infosource = Node(IdentityInterface(fields=['run_nb']),
-#                   name="infosource")
-# infosource.iterables = [('run_nb', [abspath('rm.epi.nomask.r0{}+tlrc.BRIK'.format(run)) for run in runs])]
-
-# calcIter = Node(afni.Calc(), name='calcIter') # This program does voxel-by-voxel arithmetic on 3D datasets.
-# calcIter.inputs.expr='a*b'
-# calcIter.inputs.out_file =  'pb02.volreg+tlrc.BRIK'
-
-
-# ####### build workflow
-# wf_run = Workflow(name="ExtentToEPI")
-# wf_run.base_dir = '.'
-# wf_run.connect([(infosource, calcIter, [("run_nb", "in_file_a")]),
-#                 (calc, calcIter, [("out_file", "in_file_b")])
-#                 ])
-# wf_run.write_graph(graph2use='exec')
-# wf_run.write_graph(graph2use='hierarchical')
-# wf_run.run()
-
-
-
-
-calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
-calc.inputs.in_file_a = 'rm.epi.mean+tlrc.BRIK.gz'
+calc = Node(afni.Calc(), name='calc') # This program does voxel-by-voxel arithmetic on 3D datasets.
+calc.inputs.in_file_a = abspath('rm.epi.mean+tlrc.BRIK.gz')
 calc.inputs.expr='step(a-0.999)'
-calc.inputs.out_file =  'mask_epi_extents+tlrc.BRIK.gz'
-calc.cmdline  # doctest: +ELLIPSIS
-# should be
-# 3dcalc -a rm.epi.mean+tlrc -expr 'step(a-0.999)' -prefix masktest_epi_extents
-res = calc.run()  # doctest: +SKIP
+calc.inputs.outputtype = "NIFTI" 
+calc.inputs.out_file =  'mask_epi_extents.nii'
+
+infosource = Node(IdentityInterface(fields=['run_nb']),
+                  name="infosource")
+infosource.iterables = [('run_nb', [abspath('rm.epi.nomask.r0{}+tlrc.BRIK'.format(run)) for run in runs])]
 
 # and apply the extents mask to the EPI data 
 # (delete any time series with missing data)
-for run in runs:
-    calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
-    calc.inputs.in_file_a = 'rm.epi.nomask.r0{}+tlrc.BRIK'.format(run)
-    calc.inputs.in_file_b = 'mask_epi_extents+tlrc.BRIK.gz'
-    calc.inputs.expr='a*b'
-    calc.inputs.out_file =  'pb02.{}.r0{}.volreg+tlrc.BRIK'.format(sub, run)
-    calc.cmdline  # doctest: +ELLIPSIS
-    # should be
-    # 3dcalc -a rm.epi.nomask.r$run+tlrc -b mask_epi_extents+tlrc \
-    #        -expr 'a*b' -prefix pb02.$subj.r$run.volreg
-    res = calc.run()  # doctest: +SKIP
-    print("success")
-
-for run in runs:
-    compare2brik(opj(path_afni_preprocessed_files, 'pb02.FT.r0{}.volreg+tlrc.BRIK'.format(run)), 'pb02.FT.r0{}.volreg+tlrc.BRIK'.format(run)) # TRUE
+calcIter = Node(afni.Calc(), name='calcIter') # This program does voxel-by-voxel arithmetic on 3D datasets.
+calcIter.inputs.expr='a*b'
+calcIter.inputs.out_file =  'pb02.volreg+tlrc.BRIK'
 
 
+####### build workflow
+wf_run = Workflow(name="ExtentToEPI")
+wf_run.base_dir = '.'
+wf_run.connect([(infosource, calcIter, [("run_nb", "in_file_a")]),
+                (calc, calcIter, [("out_file", "in_file_b")])
+                ])
+wf_run.write_graph(graph2use='exec')
+wf_run.write_graph(graph2use='hierarchical')
+wf_run.run()
+
+compare2brik(opj(path_afni_preprocessed_files, 'pb02.FT.r01.volreg+tlrc.BRIK'), "/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/ExtentToEPI/_run_nb_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..rm.epi.nomask.r01+tlrc.BRIK/calcIter/pb02.volreg+tlrc.BRIK") # TRUE
+compare2brik(opj(path_afni_preprocessed_files, 'pb02.FT.r02.volreg+tlrc.BRIK'), "/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/ExtentToEPI/_run_nb_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..rm.epi.nomask.r02+tlrc.BRIK/calcIter/pb02.volreg+tlrc.BRIK") # TRUE
+compare2brik(opj(path_afni_preprocessed_files, 'pb02.FT.r03.volreg+tlrc.BRIK'), "/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/ExtentToEPI/_run_nb_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..rm.epi.nomask.r03+tlrc.BRIK/calcIter/pb02.volreg+tlrc.BRIK") # TRUE
 
 
 
@@ -1034,7 +997,7 @@ compare2brik(opj(path_afni_preprocessed_files, "final_epi_vr_base_min_outlier+tl
 
 
 # create an anat_final dataset, aligned with stats
-copy3d=  afni.Copy() # Copies an image of one type to an image of the same or different type
+copy3d =  afni.Copy() # Copies an image of one type to an image of the same or different type
 copy3d.inputs.in_file = "FT_anat_ns+tlrc.BRIK"
 copy3d.inputs.out_file = "anat_final.{}+tlrc.BRIK".format(sub)
 copy3d.cmdline
@@ -1072,8 +1035,8 @@ compare2text(3, opj(path_afni_preprocessed_files, 'out.allcostX.txt'), 'out.allc
 # --------------------------------------
 # selectfile
 # String template with {}-based strings
-templates = {'pb02': abspath('pb02.FT.r01.volreg+tlrc.BRIK'),
-             'maskepi': abspath('mask_epi_extents+tlrc.BRIK.gz')}
+templates = {'pb02': abspath('/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/ExtentToEPI/_run_nb_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..rm.epi.nomask.r01+tlrc.BRIK/calcIter/pb02.volreg+tlrc.BRIK'),
+             'maskepi': abspath('/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/ExtentToEPI/calc/mask_epi_extents.nii')}
 # Create SelectFiles node
 sf = Node(SelectFiles(templates),
           name='selectfiles')
@@ -1211,22 +1174,26 @@ shutil.copytree(src, dst)
 
 #####################################
 #####################################
-# part factorized
+# part with the same error as previously :
+# if written BRIK.gz then HEAD is not saved, thus BRIK.gz cannot be openned
+# if not written, then at next round, search for BRIK instead of BRIK.gz (default in nipype?) thus file not found 
+# SOLVED using AFNI2NIFTI
 ######################################
 ######################################
 
+from nipype import JoinNode
 # selectfile
 # String template with {}-based strings
-templates = {'for_resample': abspath('FT_anat_ns+tlrc.BRIK')}
+templates = {'FT_anat': abspath('FT_anat_ns+tlrc.BRIK')}
 # Create SelectFiles node
 sf = Node(SelectFiles(templates),
           name='selectfiles')
 # Location of the dataset folder
 sf.inputs.base_directory = '.'
 
-infosource = Node(IdentityInterface(fields=['run_nb']),
+infosource = Node(IdentityInterface(fields=['pb02']),
                   name="infosource")
-infosource.iterables = [('to_merge', [abspath('pb02.FT.r0{}.volreg+tlrc.BRIK'.format(run)) for run in runs])]
+infosource.iterables = [('pb02', [abspath('/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/ExtentToEPI/_run_nb_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..rm.epi.nomask.r0{}+tlrc.BRIK/calcIter/pb02.volreg+tlrc.BRIK'.format(run)) for run in runs])]
 
 # blur each volume of each run
 merge = Node(afni.Merge(), name='merge')  # Merge or edit volumes using AFNI 3dmerge command
@@ -1236,14 +1203,16 @@ merge.inputs.out_file = 'pb03.FT.blur+tlrc.BRIK'
 
 
 automask = Node(afni.Automask(), name='automask') # Create a brain-only mask of the image using AFNI 3dAutomask command
-automask.inputs.brain_file = "skullstripped_pb03_r0{}+tlrc.BRIK".format(run)
-automask.inputs.out_file = "rm.mask+tlrc.BRIK.gz"
+automask.inputs.brain_file = "skullstripped_pb03+tlrc.BRIK"
+automask.inputs.outputtype = "NIFTI" 
+automask.inputs.out_file = "rm.mask.nii" 
+
 
 # create union of inputs, output type is byte
-masktool = Node(afni.MaskTool(),name='masktool') # for combining/dilating/eroding/filling masks
-masktool.inputs.in_file = ['rm.mask+tlrc.BRIK.gz' for run in runs]
-masktool.inputs.out_file = "full_mask.FT+tlrc.BRIK.gz"
+masktool = JoinNode(afni.MaskTool(),joinsource="infosource", joinfield="in_file", name='masktool') # for combining/dilating/eroding/filling masks
 masktool.inputs.union = True
+masktool.inputs.outputtype = "NIFTI" #.gz
+masktool.inputs.out_file = "full_mask.FT.nii" #.gz
 
 
 # ---- create subject anatomy mask, mask_anat.$subj+tlrc ----
@@ -1256,137 +1225,58 @@ resample.inputs.out_file = 'rm.resam.anat+tlrc.BRIK'
 masktool2 = Node(afni.MaskTool(),name='masktool2') # for combining/dilating/eroding/filling masks
 masktool2.inputs.dilate_inputs = '5 -5'
 masktool2.inputs.fill_holes = True
-masktool2.inputs.out_file = "mask_anat.FT+tlrc.BRIK.gz"
+masktool2.inputs.outputtype = "NIFTI" #.gz
+masktool2.inputs.out_file = "mask_anat.FT.nii" #.gz
 
+# from nipype.interfaces.utility import Merge
+# mi = Node(Merge(2), name='mi')
+def mi(filea, fileb):
+    files_linked = [filea, fileb]
+    return files_linked
+mi_node = Node(Function(input_names=["filea", "fileb"],
+                                    output_names=["files_linked"],
+                                    function=mi),
+              name='mi')
 
 # compute tighter EPI mask by intersecting with anat mask
 masktool3 = Node(afni.MaskTool(),name='masktool3') # for combining/dilating/eroding/filling masks
-masktool3.inputs.out_file = "mask_epi_anat.FT+tlrc.BRIK.gz"
 masktool3.inputs.inter = True
+masktool3.inputs.outputtype = "NIFTI" #.gz
+masktool3.inputs.out_file = "mask_epi_anat.FT.nii" #.gz
 
 
 # compute overlaps between anat and EPI masks
 aboverlap = Node(afni.ABoverlap(), name='aboverlap')
 aboverlap.inputs.no_automask = True
-aboverlap.inputs.out_file =  'out.mask_ae_overlap.txt'
+aboverlap.inputs.out_file =  'out.mask_ae_overlap.txt' # the output is actually not saved, no idea why
 
 ####### build workflow
 wf_run = Workflow(name="BlurAndMask")
 wf_run.base_dir = '.'
-wf_run.connect([(infosource, merge, [("to_merge", "in_files")]),
+wf_run.connect([(infosource, merge, [("pb02", "in_files")]),
                 (merge, automask, [("out_file", "in_file")]),
-                (detrend, tstat2, [("out_file", "in_file")]),
-                (tstat, calc, [("out_file", "in_file_a")]),
-                (tstat2, calc, [("out_file", "in_file_b")]),
-                (sf, calc, [("maskepi", "in_file_c")])
+                (automask, masktool, [("out_file", "in_file")]),
+                (masktool, resample, [("out_file", "master")]),
+                (sf, resample, [("FT_anat", "in_file")]),
+                (resample, masktool2, [("out_file", "in_file")]),
+                (masktool2, mi_node, [("out_file", "filea")]),
+                (masktool, mi_node, [("out_file", "fileb")]),
+                (mi_node, masktool3, [("files_linked", "in_file")]),
+                (masktool, aboverlap, [("out_file", "in_file_a")]),
+                (masktool2, aboverlap, [("out_file", "in_file_b")]),
                 ])
 wf_run.write_graph(graph2use='exec')
 wf_run.write_graph(graph2use='hierarchical')
 wf_run.run()
 
+compare2brik(opj(path_afni_preprocessed_files, "pb03.FT.r01.blur+tlrc.BRIK"),"//home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/_pb02_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..ExtentToEPI.._run_nb_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..rm.epi.nomask.r01+tlrc.BRIK..calcIter..pb02.volreg+tlrc.BRIK/merge/pb03.FT.blur+tlrc.BRIK")# TRUE
+!3dcopy /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool/full_mask.FT.nii /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool/full_mask.FT
+compare2brik(opj(path_afni_preprocessed_files, "full_mask.FT+tlrc.BRIK.gz"), "/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool/full_mask.FT+tlrc.BRIK.gz")
+!3dcopy /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool2/mask_anat.FT.nii /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool2/mask_anat.FT
+compare2brik(opj(path_afni_preprocessed_files, "mask_anat.FT+tlrc.BRIK.gz"),"/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool2/mask_anat.FT+tlrc.BRIK.gz")
+!3dcopy /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool3/mask_epi_anat.FT.nii /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool3/mask_epi_anat.FT
+compare2brik(opj(path_afni_preprocessed_files, "mask_epi_anat.FT+tlrc.BRIK.gz"),"/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool3/mask_epi_anat.FT+tlrc.BRIK.gz")
 
-#####################################
-#####################################
-# TO DO: finir le connect du workflow BlurAndMak
-# part not YET factorized
-######################################
-######################################
-
-
-# blur each volume of each run
-for run in runs:
-    merge = afni.Merge() # Merge or edit volumes using AFNI 3dmerge command
-    merge.inputs.in_files = 'pb02.{}.r0{}.volreg+tlrc.BRIK'.format(sub, run)
-    merge.inputs.blurfwhm = 4
-    merge.inputs.doall = True
-    merge.inputs.out_file = 'pb03.{}.r0{}.blur+tlrc.BRIK'.format(sub, run)
-    print(merge.cmdline)
-    # should be:
-    # 3dmerge -1blur_fwhm 4.0 -doall -prefix pb03.$subj.r$run.blur \
-    #         pb02.$subj.r$run.volreg+tlrc
-    res = merge.run() 
-
-    # ================================== mask ==================================
-    # create 'full_mask' dataset (union mask)
-
-    automask = afni.Automask() # Create a brain-only mask of the image using AFNI 3dAutomask command
-    automask.inputs.in_file = 'pb03.{}.r0{}.blur+tlrc.BRIK'.format(sub, run)
-    automask.inputs.brain_file = "skullstripped_pb03_r0{}+tlrc.BRIK".format(run)
-    automask.inputs.out_file = "rm.mask_r0{}+tlrc.BRIK.gz".format(run)
-    automask.cmdline  # doctest: +ELLIPSIS
-    # should be:
-    # 3dAutomask -prefix rm.mask_r$run pb03.$subj.r$run.blur+tlrc
-    res = automask.run()  # doctest: +SKIP
-
-for run in runs:
-    compare2brik(opj(path_afni_preprocessed_files, "pb03.FT.r0{}.blur+tlrc.BRIK".format(run)),"pb03.FT.r0{}.blur+tlrc.BRIK".format(run)) # TRUE
-
-# create union of inputs, output type is byte
-masktool = afni.MaskTool() # for combining/dilating/eroding/filling masks
-masktool.inputs.in_file = ['rm.mask_r0{}+tlrc.BRIK.gz'.format(run) for run in runs]
-masktool.inputs.out_file = "full_mask.{}+tlrc.BRIK.gz".format(sub)
-masktool.inputs.union = True
-masktool.cmdline
-# should be:
-# 3dmask_tool -inputs rm.mask_r*+tlrc.HEAD -union -prefix full_mask.$subj
-res = masktool.run() 
-compare2brik(opj(path_afni_preprocessed_files, "full_mask.{}+tlrc.BRIK.gz".format(sub)),"full_mask.{}+tlrc.BRIK.gz".format(sub)) # TRUE
-
-
-
-# ---- create subject anatomy mask, mask_anat.$subj+tlrc ----
-#      (resampled from tlrc anat)
-resample = afni.Resample() # Resample or reorient an image using AFNI 3dresample command
-resample.inputs.in_file = 'FT_anat_ns+tlrc.BRIK'
-resample.inputs.master = 'full_mask.{}+tlrc.BRIK.gz'.format(sub)
-resample.inputs.out_file = 'rm.resam.anat+tlrc.BRIK'
-resample.cmdline
-# Should be:
-# 3dresample -master full_mask.$subj+tlrc -input FT_anat_ns+tlrc        \
-#            -prefix rm.resam.anat
-res = resample.run()  # doctest: +SKIP
-
-
-# convert to binary anat mask; fill gaps and holes
-masktool = afni.MaskTool() # for combining/dilating/eroding/filling masks
-masktool.inputs.in_file = 'rm.resam.anat+tlrc.BRIK'
-masktool.inputs.dilate_inputs = '5 -5'
-masktool.inputs.fill_holes = True
-masktool.inputs.out_file = "mask_anat.{}+tlrc.BRIK.gz".format(sub)
-masktool.cmdline
-# should be:
-# 3dmask_tool -dilate_input 5 -5 -fill_holes -input rm.resam.anat+tlrc  \
-#             -prefix mask_anat.$subj
-res = masktool.run() 
-compare2brik(opj(path_afni_preprocessed_files, "mask_anat.{}+tlrc.BRIK.gz".format(sub)),"mask_anat.{}+tlrc.BRIK.gz".format(sub)) # TRUE
-
-
-
-# compute tighter EPI mask by intersecting with anat mask
-masktool = afni.MaskTool() # for combining/dilating/eroding/filling masks
-masktool.inputs.in_file = 'full_mask.{}+tlrc.BRIK.gz'.format(sub)
-masktool.inputs.out_file = "mask_epi_anat.{}+tlrc.BRIK.gz".format(sub)
-masktool.inputs.inter = True
-masktool.cmdline
-# should be:
-# 3dmask_tool -input full_mask.$subj+tlrc mask_anat.$subj+tlrc          \
-#             -inter -prefix mask_epi_anat.$subj
-res = masktool.run() 
-compare2brik(opj(path_afni_preprocessed_files, "mask_epi_anat.{}+tlrc.BRIK.gz".format(sub)),"mask_epi_anat.{}+tlrc.BRIK.gz".format(sub)) # TRUE
-# results are different
-
-# compute overlaps between anat and EPI masks
-aboverlap = afni.ABoverlap()
-aboverlap.inputs.in_file_a = 'full_mask.{}+tlrc.BRIK.gz'.format(sub)
-aboverlap.inputs.in_file_b = 'mask_anat.{}+tlrc.BRIK.gz'.format(sub)
-aboverlap.inputs.no_automask = True
-aboverlap.inputs.out_file =  'out.mask_ae_overlap.txt'
-aboverlap.cmdline
-# should be
-# 3dABoverlap -no_automask full_mask.$subj+tlrc mask_anat.$subj+tlrc    \
-#             |& tee out.mask_ae_overlap.txt
-res = aboverlap.run() 
-compare2text(3, opj(path_afni_preprocessed_files, "out.mask_ae_overlap.txt"),"out.mask_ae_overlap.txt") # TRUE
 
 
 """ERROR with 3dDot instead of 3ddot in nipype + error on website
@@ -1401,57 +1291,11 @@ dot.cmdline
 #       |& tee out.mask_ae_dice.txt
 res = dot.run()  
 """
-!3ddot -dodice full_mask.FT+tlrc mask_anat.FT+tlrc               \
+!3ddot -dodice /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool/full_mask.FT+tlrc /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool2/mask_anat.FT+tlrc               \
       |& tee out.mask_ae_dice.txt
 compare2text(3, opj(path_afni_preprocessed_files, "out.mask_ae_dice.txt"),"out.mask_ae_dice.txt") # TRUE
 
 
-
-
-
-
-
-# ---- create group anatomy mask, mask_group+tlrc ----
-#      (resampled from tlrc base anat, TT_N27+tlrc)
-resample = afni.Resample() # Resample or reorient an image using AFNI 3dresample command
-resample.inputs.in_file = '/home/jlefortb/abin/TT_N27+tlrc.BRIK.gz'
-resample.inputs.master = 'full_mask.{}+tlrc.BRIK.gz'.format(sub)
-resample.inputs.out_file = 'rm.resam.group+tlrc.BRIK'
-resample.cmdline
-# Should be:
-# 3dresample -master full_mask.$subj+tlrc -prefix ./rm.resam.group      \
-#            -input /home/jlefortb/abin/TT_N27+tlrc
-res = resample.run()  # doctest: +SKIP
-
-
-# convert to binary group mask; fill gaps and holes
-masktool = afni.MaskTool() # for combining/dilating/eroding/filling masks
-masktool.inputs.in_file = 'rm.resam.group+tlrc.BRIK'
-masktool.inputs.out_file = 'mask_group+tlrc.BRIK.gz'
-masktool.inputs.dilate_inputs = "5 -5"
-masktool.inputs.fill_holes = True
-masktool.cmdline
-# should be:
-# 3dmask_tool -dilate_input 5 -5 -fill_holes -input rm.resam.group+tlrc \
-#             -prefix mask_group
-res = masktool.run() 
-compare2brik(opj(path_afni_preprocessed_files, "mask_group+tlrc.BRIK.gz"),"mask_group+tlrc.BRIK.gz") # TRUE
-
-"""ERROR with 3dDot instead of 3ddot in nipype + error on website
-# note Dice coefficient of anat and template masks
-dot = afni.Dot() # Correlation coefficient between sub-brick pairs. All datasets in in_files list will be concatenated. 
-dot.inputs.in_files = ['mask_anat.{}+tlrc.BRIK.gz'.format(sub), 'mask_group+tlrc.BRIK.gz']
-dot.inputs.dodice = True
-dot.inputs.out_file = 'out.mask_at_dice.txt'
-dot.cmdline
-# should be
-# 3ddot -dodice mask_anat.$subj+tlrc mask_group+tlrc                    \
-#       |& tee out.mask_at_dice.txt
-res = dot.run() 
-"""
-!3ddot -dodice mask_anat.FT+tlrc mask_group+tlrc                    \
-      |& tee out.mask_at_dice.txt
-compare2text(3, opj(path_afni_preprocessed_files, "out.mask_at_dice.txt"),"out.mask_at_dice.txt") # TRUE
 
 
 # ================================= scale ==================================
@@ -1475,30 +1319,49 @@ compare2text(3, opj(path_afni_preprocessed_files, "out.mask_at_dice.txt"),"out.m
 # scale each voxel time series to have a mean of 100
 # (be sure no negatives creep in)
 # (subject to a range of [0,200])
-for run in runs:
-    tstat = afni.TStat() # Compute voxel-wise statistics
-    tstat.inputs.in_file = 'pb03.{}.r0{}.blur+tlrc.BRIK'.format(sub, run)
-    tstat.inputs.out_file = 'rm.mean_r0{}+tlrc.BRIK'.format(run)
-    print(tstat.cmdline)
-    # should be:
-    # 3dTstat -prefix rm.mean_r$run pb03.$subj.r$run.blur+tlrc
-    res = tstat.run()
+infosource = Node(IdentityInterface(fields=['pb03']),
+                  name="infosource")
+infosource.iterables = [('pb03', [abspath('//home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/_pb02_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..ExtentToEPI.._run_nb_..home..jlefortb..reproduction_afni_tutorial..afni_tuto_w_nipype..FT.results..rm.epi.nomask.r0{}+tlrc.BRIK..calcIter..pb02.volreg+tlrc.BRIK/merge/pb03.FT.blur+tlrc.BRIK'.format(run)) for run in runs])]
 
-    calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
-    calc.inputs.in_file_a = 'pb03.{}.r0{}.blur+tlrc.BRIK'.format(sub, run)
-    calc.inputs.in_file_b = 'rm.mean_r0{}+tlrc.BRIK'.format(run)
-    calc.inputs.in_file_c = 'mask_epi_extents+tlrc.BRIK.gz'
-    calc.inputs.expr = 'c * min(200, a/b*100)*step(a)*step(b)'
-    calc.inputs.out_file = 'pb04.{}.r0{}.scale+tlrc.BRIK'.format(sub, run)
-    print(calc.cmdline)
-    # should be:
-    # 3dcalc -a pb03.$subj.r$run.blur+tlrc -b rm.mean_r$run+tlrc \
-    #        -c mask_epi_extents+tlrc                            \
-    #        -expr 'c * min(200, a/b*100)*step(a)*step(b)'       \
-    #        -prefix pb04.$subj.r$run.scale
-    res = calc.run()
-compare2brik(opj(path_afni_preprocessed_files, 'pb04.{}.r0{}.scale+tlrc.BRIK'.format(sub, run)),'pb04.{}.r0{}.scale+tlrc.BRIK'.format(sub, run)) # TRUE
+# blur each volume of each run
+tstat = Node(afni.TStat(), name='tstat')  # Merge or edit volumes using AFNI 3dmerge command
+tstat.inputs.out_file = 'rm.mean+tlrc.BRIK'
 
+# selectfile
+# String template with {}-based strings
+templates = {'epi_extent': abspath('/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/ExtentToEPI/calc/mask_epi_extents.nii')}
+# Create SelectFiles node
+sf = Node(SelectFiles(templates),
+          name='selectfiles')
+# Location of the dataset folder
+sf.inputs.base_directory = '.'
+
+
+calc = Node(afni.Calc(), name='calc')  # Merge or edit volumes using AFNI 3dmerge command
+calc.inputs.expr = 'c * min(200, a/b*100)*step(a)*step(b)'
+calc.inputs.out_file = 'pb04.scale+tlrc.BRIK'
+
+
+####### build workflow
+wf_run = Workflow(name="Scale")
+wf_run.base_dir = '.'
+wf_run.connect([(infosource, tstat, [("pb03", "in_file")]),
+                (tstat, calc, [("out_file", "in_file_b")]),
+                (infosource, calc, [("pb03", "in_file_a")]),
+                (sf, calc, [("epi_extent", "in_file_c")])
+                ])
+wf_run.write_graph(graph2use='exec')
+wf_run.write_graph(graph2use='hierarchical')
+wf_run.run()
+
+compare2brik(opj(path_afni_preprocessed_files, 'pb04.FT.r01.scale+tlrc.BRIK'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/Scale/2bcb56d75f85bda06ded1fd20fba4ac28bbd83ad/calc/pb04.scale+tlrc.BRIK') # TRUE
+
+
+
+
+###########################
+## FACTORIZED UNTIL HERE
+###########################
 
 # ================================ regress =================================
 
