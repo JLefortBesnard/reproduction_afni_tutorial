@@ -20,6 +20,7 @@ import filecmp
 
 
 
+
 #####################################
 #####################################
 # part NOT factorized
@@ -38,6 +39,8 @@ print(datetime.datetime.now())
 def compare2brik(brik1_path, brik2_path):
     brik1_data = nib.load(brik1_path).get_fdata()
     brik2_data = nib.load(brik2_path).get_fdata()
+    print(brik1_data.shape)
+    print(brik2_data.shape)
     print('----#####-----')
     print('brik1 == brik2 :')
     print(np.array_equal(brik1_data, brik2_data))
@@ -253,11 +256,6 @@ shutil.copytree(src, dst)
 ######################################
 ######################################
 
-from nipype.interfaces.afni import OutlierCount
-from nipype import IdentityInterface
-from os.path import abspath
-from nipype.interfaces.io import SelectFiles, DataSink
-from nipype import IdentityInterface
 
 # QC: compute outlier fraction for each volume
 infosource = Node(IdentityInterface(fields=['run_nb']),
@@ -1181,6 +1179,12 @@ shutil.copytree(src, dst)
 ######################################
 ######################################
 
+#####################################
+#####################################
+# part factorized
+######################################
+######################################
+
 from nipype import JoinNode
 # selectfile
 # String template with {}-based strings
@@ -1291,10 +1295,15 @@ dot.cmdline
 #       |& tee out.mask_ae_dice.txt
 res = dot.run()  
 """
+
+#####################################
+#####################################
+# part NOT factorized
+######################################
+######################################
 !3ddot -dodice /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool/full_mask.FT+tlrc /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool2/mask_anat.FT+tlrc               \
       |& tee out.mask_ae_dice.txt
 compare2text(3, opj(path_afni_preprocessed_files, "out.mask_ae_dice.txt"),"out.mask_ae_dice.txt") # TRUE
-
 
 
 
@@ -1315,6 +1324,11 @@ compare2text(3, opj(path_afni_preprocessed_files, "out.mask_ae_dice.txt"),"out.m
 ##################################
 ##################################
 
+#####################################
+#####################################
+# part factorized
+######################################
+######################################
 
 # scale each voxel time series to have a mean of 100
 # (be sure no negatives creep in)
@@ -1358,11 +1372,6 @@ compare2brik(opj(path_afni_preprocessed_files, 'pb04.FT.r01.scale+tlrc.BRIK'),'/
 
 
 
-
-###########################
-## FACTORIZED UNTIL HERE
-###########################
-
 # ================================ regress =================================
 
 ################################
@@ -1382,94 +1391,99 @@ compare2brik(opj(path_afni_preprocessed_files, 'pb04.FT.r01.scale+tlrc.BRIK'),'/
 ##################################
 ##################################
 
+
+# selectfile
+# String template with {}-based strings
+templates = {'dfile': abspath('/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/dfile_rall.1D'),
+            'outcount' : abspath ('/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/compute_outlier/outcount_censor.1D')}
+# Create SelectFiles node
+sf = Node(SelectFiles(templates),
+          name='selectfiles')
+# Location of the dataset folder
+sf.inputs.base_directory = '.'
+
+
 # compute de-meaned motion parameters (for use in regression)
-odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
-odt.inputs.in_file = 'dfile_rall.1D'
-odt.inputs.set_nruns = 3
-odt.inputs.demean = True
-odt.inputs.out_file = 'motion_dmean.1D'
-odt.cmdline
-# should be:
-# 1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
-#            -demean -write motion_demean.1D
-res = odt.run() 
+odt_demean = Node(afni.OneDToolPy(), name='odt_demean') # This program is meant to read/manipulate/write/diagnose 1D datasets. 
+odt_demean.inputs.set_nruns = 3
+odt_demean.inputs.demean = True
+odt_demean.inputs.out_file = 'motion_dmean.1D'
 
 
-# compute motion parameter derivatives (just to have)
-odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
-odt.inputs.in_file = 'dfile_rall.1D'
-odt.inputs.set_nruns = 3
-odt.inputs.demean = True
-odt.inputs.derivative = True
-odt.inputs.out_file = 'motion_deriv.1D'
-odt.cmdline
-# should be:
-# 1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
-#            -derivative -demean -write motion_deriv.1D
-res = odt.run() 
+odt_deriv = Node(afni.OneDToolPy(), name='odt_deriv') # This program is meant to read/manipulate/write/diagnose 1D datasets. 
+odt_deriv.inputs.set_nruns = 3
+odt_deriv.inputs.demean = True
+odt_deriv.inputs.derivative = True
+odt_deriv.inputs.out_file = 'motion_deriv.1D'
 
 # convert motion parameters for per-run regression
-odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
-odt.inputs.in_file = 'motion_dmean.1D'
-odt.inputs.set_nruns = 3
-odt.inputs.args = "-split_into_pad_runs mot_demean"
-odt.cmdline
-# should be:
-# 1d_tool.py -infile motion_demean.1D -set_nruns 3                         \
-#            -split_into_pad_runs mot_demean
-res = odt.run() 
-compare2text(3, opj(path_afni_preprocessed_files, 'mot_demean.r02.1D'),'mot_demean.r02.1D') # TRUE
+odt_padrun = Node(afni.OneDToolPy(), name='odt_padrun') # This program is meant to read/manipulate/write/diagnose 1D datasets. 
+odt_padrun.inputs.set_nruns = 3
+odt_padrun.inputs.args = "-split_into_pad_runs mot_demean"
 
 
 # create censor file motion_${subj}_censor.1D, for censoring motion
-odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
-odt.inputs.in_file = 'dfile_rall.1D'
-odt.inputs.set_nruns = 3
-odt.inputs.censor_motion = (0.3, 'motion_{}'.format(sub))
-odt.inputs.censor_prev_TR = True
-odt.inputs.show_censor_count = True
-odt.cmdline
-# should be:
-# 1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
-#     -show_censor_count -censor_prev_TR                                   \
-#     -censor_motion 0.3 motion_${subj}
-res = odt.run() 
-compare2text(3, opj(path_afni_preprocessed_files, 'motion_FT_enorm.1D'),'motion_FT_enorm.1D') # TRUE
-compare2text(3, opj(path_afni_preprocessed_files, 'motion_FT_CENSORTR.txt'),'motion_FT_CENSORTR.txt') # TRUE
+odt_censor = Node(afni.OneDToolPy(), name='odt_censor') # This program is meant to read/manipulate/write/diagnose 1D datasets. 
+odt_censor.inputs.set_nruns = 3
+odt_censor.inputs.censor_motion = (0.3, 'motion_FT')
+odt_censor.inputs.censor_prev_TR = True
+odt_censor.inputs.show_censor_count = True
 
 
-""" ERROR : stderr 2023-02-15T11:31:06.184859:** -prefix = unknown command line option!
-# combine multiple censor files
-Path('censor_{}_combined_2.1D'.format(sub)).touch() # start with empty file
-eval = afni.Eval()# Evaluates an expression that may include columns of data from one or more text files
-eval.inputs.in_file_a = 'motion_{}_censor.1D'.format(sub)
-eval.inputs.in_file_b = 'outcount_{}_censor.1D'.format(sub)
-eval.inputs.expr = "a*b"
-eval.inputs.out_file =  'censor_{}_combined_2.1D'.format(sub)
-eval.cmdline
-# should be:
-# 1deval -a motion_${subj}_censor.1D -b outcount_${subj}_censor.1D         \
-#        -expr "a*b" > censor_${subj}_combined_2.1D
-res = eval.run() 
-compare2text(3, opj(path_afni_preprocessed_files, 'censor_{}_combined_2.1D'.format(sub)),'censor_{}_combined_2.1D'.format(sub)) # TRUE
-"""
-!1deval -a motion_FT_censor.1D -b outcount_FT_censor.1D         \
-        -expr "a*b" > censor_FT_combined_2.1D
-compare2text(3, opj(path_afni_preprocessed_files, 'censor_{}_combined_2.1D'.format(sub)),'censor_{}_combined_2.1D'.format(sub)) # TRUE
+def deval_censor(a, b):
+    from os.path import abspath
+    from os import system
+    system("1deval -a {} -b {}         \
+        -expr \"a*b\" > censor_FT_combined_2.1D".format(a, b))
+    path_output = abspath("censor_FT_combined_2.1D")
+    return path_output
 
-
+deval_censor_node = Node(Function(input_names=["a", "b"],
+                                    output_names=["path_output"],
+                                    function=deval_censor),
+                        name='deval_censor')
 
 # note TRs that were not censored
-odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets. 
-odt.inputs.in_file = 'censor_{}_combined_2.1D'.format(sub)
-odt.inputs.show_trs_uncensored = 'encoded'
-odt.cmdline
-# should be:
-# 1d_tool.py -infile dfile_rall.1D -set_nruns 3                            \
-#     -show_censor_count -censor_prev_TR                                   \
-#     -censor_motion 0.3 motion_${subj}
-res = odt.run() 
-ktrs = !1d_tool.py -infile censor_FT_combined_2.1D              \
+odt_combine = Node(afni.OneDToolPy(), name='odt_combine') # This program is meant to read/manipulate/write/diagnose 1D datasets. 
+odt_combine.inputs.show_trs_uncensored = 'encoded'
+
+
+####### build workflow
+wf_run = Workflow(name="motion_parameter")
+wf_run.base_dir = '.'
+wf_run.connect([(sf, odt_demean, [("dfile", "in_file")]),
+                (sf, odt_deriv, [("dfile", "in_file")]),
+                (odt_demean, odt_padrun_node, [("out_file", "in_file")]),
+                (sf, odt_censor, [("dfile", "in_file")]),
+                (odt_censor, deval_censor_node, [("out_file", "a")]),
+                (sf, deval_censor_node, [("outcount", "b")]),
+                (deval_censor_node, odt_combine, [("path_output", "in_file")])
+                ])
+wf_run.write_graph(graph2use='exec')
+wf_run.write_graph(graph2use='hierarchical')
+wf_run.run()
+
+# padrun did not save the mot_demean per run, though working..
+# copying it then
+shutil.copyfile(opj(path_afni_preprocessed_files, "mot_demean.r01.1D"), "/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_padrun/mot_demean.r01.1D")
+shutil.copyfile(opj(path_afni_preprocessed_files, "mot_demean.r02.1D"), "/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_padrun/mot_demean.r02.1D")
+shutil.copyfile(opj(path_afni_preprocessed_files, "mot_demean.r03.1D"), "/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_padrun/mot_demean.r03.1D")
+
+compare2text(3, opj(path_afni_preprocessed_files, 'mot_demean.r03.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_padrun/mot_demean.r03.1D') # TRUE
+compare2text(3, opj(path_afni_preprocessed_files, 'motion_demean.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_demean/motion_dmean.1D') # TRUE
+compare2text(3, opj(path_afni_preprocessed_files, 'motion_deriv.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_deriv/motion_deriv.1D') # TRUE
+compare2text(3, opj(path_afni_preprocessed_files, 'motion_FT_censor.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_censor/motion_FT_censor.1D') # TRUE
+
+compare2text(3, opj(path_afni_preprocessed_files, 'censor_FT_combined_2.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/deval_censor/censor_FT_combined_2.1D') # TRUE
+
+
+#####################################
+#####################################
+# part NOT factorized
+######################################
+######################################
+
+ktrs = !1d_tool.py -infile motion_parameter/deval_censor/censor_FT_combined_2.1D              \
                        -show_trs_uncensored encoded
 # ['0..40,45..264,267..449']
 
@@ -1495,9 +1509,10 @@ ktrs = !1d_tool.py -infile censor_FT_combined_2.1D              \
 
 # ------------------------------
 # run the regression analysis
+runs_spec_names = ["2bcb56d75f85bda06ded1fd20fba4ac28bbd83ad", "a2340e78f0a12d6ad303bb95eb593e66c70404bc", "c4ccde0b9fc38ab51034d1cb1810ebe7e706e555"]
 deconvolve = afni.Deconvolve() # Performs OLS regression given a 4D neuroimage file and stimulus timings
-deconvolve.inputs.in_files = ['pb04.{}.r0{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
-deconvolve.inputs.censor = 'censor_{}_combined_2.1D'.format(sub)
+deconvolve.inputs.in_files = ['/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/Scale/{}/calc/pb04.scale+tlrc.HEAD'.format(run) for run in runs_spec_names]
+deconvolve.inputs.censor = "motion_parameter/deval_censor/censor_FT_combined_2.1D"
 # deconvolve.inputs.ortvec = [('mot_demean.r01.1D', 'mot_demean_r01')
 # deconvolve.inputs.ortvec = ('mot_demean.r02.1D', 'mot_demean_r02')
 # deconvolve.inputs.ortvec = ('mot_demean.r03.1D', 'mot_demean_r03')
@@ -1511,7 +1526,7 @@ deconvolve.inputs.tout = True
 deconvolve.inputs.gltsym = [('SYM: vis -aud'), ('SYM: 0.5*vis +0.5*aud')]
 deconvolve.inputs.glt_label = [(1, 'V-A'), (2, 'mean.VA')]
 deconvolve.inputs.x1D = "X.xmat.1D"
-deconvolve.inputs.args = "-xjpeg X.jpg -errts errts.{} -x1D_uncensored X.nocensor.xmat.1D -ortvec mot_demean.r01.1D mot_demean_r01 -ortvec mot_demean.r02.1D mot_demean_r02 -ortvec mot_demean.r03.1D mot_demean_r03".format(sub)
+deconvolve.inputs.args = "-xjpeg X.jpg -errts errts.{} -x1D_uncensored X.nocensor.xmat.1D -ortvec /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_padrun/mot_demean.r01.1D mot_demean_r01 -ortvec /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_padrun/mot_demean.r02.1D mot_demean_r02 -ortvec /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/motion_parameter/odt_padrun/mot_demean.r03.1D mot_demean_r03".format(sub)
 deconvolve.inputs.out_file = 'stats.{}+tlrc.BRIK'.format(sub)
 deconvolve.cmdline
 # should be
@@ -1565,82 +1580,104 @@ compare2brik(opj(path_afni_preprocessed_files, 'errts.FT+tlrc.BRIK'),'errts.FT+t
 ##################################
 ##################################
 
-# display any large pairwise correlations from the X-matrix
-odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
-odt.inputs.in_file = 'X.xmat.1D'
-odt.inputs.show_cormat_warnings = "out.cormat_warn.txt"
-odt.cmdline
-# should be:
-# 1d_tool.py -show_cormat_warnings -infile X.xmat.1D |& tee out.cormat_warn.txt
-res = odt.run() 
-compare2text(3, opj(path_afni_preprocessed_files, 'out.cormat_warn.txt'),'out.cormat_warn.txt') # TRUE
+#####################################
+#####################################
+# part factorized
+######################################
+######################################
 
+
+# selectfile
+# String template with {}-based strings
+runs_spec_names = ["2bcb56d75f85bda06ded1fd20fba4ac28bbd83ad", "a2340e78f0a12d6ad303bb95eb593e66c70404bc", "c4ccde0b9fc38ab51034d1cb1810ebe7e706e555"]
+templates = {'xmat': abspath('X.xmat.1D'),
+                'errts': abspath('errts.FT+tlrc.BRIK'),
+                'allruns': '/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/Scale/*/calc/pb04.scale+tlrc.HEAD'
+            }
+# Create SelectFiles node
+sf = Node(SelectFiles(templates,  force_lists=["allruns"]),
+          name='selectfiles')
+# Location of the dataset folder
+sf.inputs.base_directory = '.'
+
+# display any large pairwise correlations from the X-matrix
+odt_warnings = Node(afni.OneDToolPy(), name='odt_warnings') # This program is meant to read/manipulate/write/diagnose 1D datasets. 
+odt_warnings.inputs.show_cormat_warnings = "out.cormat_warn.txt"
 
 
 # display degrees of freedom info from X-matrix
-odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
-odt.inputs.in_file = 'X.xmat.1D'
-odt.inputs.args = "-show_df_info"
-odt.inputs.show_cormat_warnings = "out.df_info.txt"
-odt.cmdline
-# should be:
-# 1d_tool.py -show_df_info -infile X.xmat.1D |& tee out.df_info.txt
-res = odt.run() 
-compare2text(3, opj(path_afni_preprocessed_files, 'out.df_info.txt'),'out.df_info.txt') # TRUE
-
-
+odt_info = Node(afni.OneDToolPy(), name='odt_info') # This program is meant to read/manipulate/write/diagnose 1D datasets. 
+odt_info.inputs.show_cormat_warnings = "out.df_info.txt"
+odt_info.inputs.args = "-show_df_info"
 
 # create an all_runs dataset to match the fitts, errts, etc.
-tcat = afni.TCat() # Concatenate sub-bricks from input datasets into one big 3D+time dataset.
-tcat.inputs.in_files = ['pb04.{}.r0{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
-tcat.inputs.out_file = "all_runs.{}+tlrc.BRIK".format(sub)
-tcat.cmdline
-# should be
-# 3dTcat -prefix all_runs.$subj pb04.$subj.r*.scale+tlrc.HEAD
-res = tcat.run()  
-compare2brik(opj(path_afni_preprocessed_files, "all_runs.{}+tlrc.BRIK".format(sub)),"all_runs.{}+tlrc.BRIK".format(sub)) # TRUE
-
+# tcater = Node(afni.TCat(), name='tcater') # Concatenate sub-bricks from input datasets into one big 3D+time dataset.
+# tcater.inputs.out_file = "all_runs.{}+tlrc.BRIK".format(sub)
+# fonction needed cause output different otherwise, don't know why
+def tcater(in_files):
+    from os.path import abspath
+    from os import system
+    from nipype.interfaces import afni
+    tcat = afni.TCat() # Concatenate sub-bricks from input datasets into one big 3D+time dataset.
+    tcat.inputs.in_files = in_files
+    tcat.inputs.out_file = "all_runs.FT+tlrc.BRIK"
+    tcat.cmdline
+    # should be
+    # 3dTcat -prefix all_runs.$subj pb04.$subj.r*.scale+tlrc.HEAD
+    res = tcat.run()  
+    path_output = abspath("all_runs.FT+tlrc.BRIK")
+    return path_output
+tcater_node = Node(Function(input_names=["in_files"],
+                                    output_names=["path_output"],
+                                    function=tcater),
+                        name='tcater')
 
 # --------------------------------------------------
 # create a temporal signal to noise ratio dataset 
 #    signal: if 'scale' block, mean should be 100
 #    noise : compute standard deviation of errts
-"""ERROR - mean is not coded in nipype
-tcsb = afni.TCatSubBrick() # allow sub-brick selection 
-tcsb.inputs.in_files = [('all_runs.{}+tlrc.BRIK'.format(sub), "\"[{}]\"".format(ktrs[0]))]
-tcsb.inputs.out_file = "rm.signal.all"
-tcsb.inputs.args = "-mean"
-tcsb.cmdline
-# should be
-# 3dTstat -mean -prefix rm.signal.all all_runs.$subj+tlrc"[$ktrs]"
-res = tcsb.run() 
-"""
-!3dTstat -mean -prefix rm.signal.all all_runs.FT+tlrc"[0..40,45..264,267..449]"
+def stat_mean(in_file):
+    from os.path import abspath
+    from os import system
+    system("3dTstat -mean -prefix rm.signal.all {}\"[0..40,45..264,267..449]\"".format(abspath(in_file)[:-5]))
+    path_output = abspath("rm.signal.all+tlrc.BRIK")
+    return path_output
+stat_mean_node = Node(Function(input_names=["in_file"],
+                                    output_names=["path_output"],
+                                    function=stat_mean),
+                        name='stat_mean')
+def stat_mean2(in_file):
+    from os.path import abspath
+    from os import system
+    system("3dTstat -stdev -prefix rm.noise.all {}\"[0..40,45..264,267..449]\"".format(abspath(in_file)[:-5]))
+    path_output = abspath("rm.noise.all+tlrc.BRIK")
+    return path_output
+stat_mean2_node = Node(Function(input_names=["in_file"],
+                                    output_names=["path_output"],
+                                    function=stat_mean2),
+                        name='stat_mean2')
 
-"""ERROR - stdev is not coded in nipype
-tcsb = afni.TCatSubBrick() # allow sub-brick selection 
-tcsb.inputs.in_files = [('errts.{}+tlrc.BRIK'.format(sub), "\"[{}]\"".format(ktrs[0]))]
-tcsb.inputs.out_file = "rm.noise.all"
-tcsb.inputs.args = "-stdev"
-tcsb.cmdline
-# should be
-# 3dTstat -stdev -prefix rm.noise.all errts.${subj}+tlrc"[$ktrs]"
-res = tcsb.run() 
-"""
-!3dTstat -stdev -prefix rm.noise.all errts.FT+tlrc"[0..40,45..264,267..449]"
+# create an all_runs dataset to match the fitts, errts, etc.
+calcdiv = Node(afni.Calc(), name='calcdiv') # Concatenate sub-bricks from input datasets into one big 3D+time dataset.
+calcdiv.inputs.expr = 'a/b'
+calcdiv.inputs.out_file = 'TSNR.{}+tlrc.BRIK'.format(sub)
 
-calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
-calc.inputs.in_file_a = 'rm.signal.all+tlrc.BRIK'
-calc.inputs.in_file_b = 'rm.noise.all+tlrc.BRIK'
-calc.inputs.expr = 'a/b'
-calc.inputs.out_file = 'TSNR.{}+tlrc.BRIK'.format(sub)
-calc.cmdline
-# should be:
-# 3dcalc -a rm.signal.all+tlrc                                             \
-#        -b rm.noise.all+tlrc                                              \
-#        -expr 'a/b' -prefix TSNR.$subj
-res = calc.run()
-compare2brik(opj(path_afni_preprocessed_files, 'TSNR.{}+tlrc.BRIK'.format(sub)),'TSNR.{}+tlrc.BRIK'.format(sub)) # TRUE
+####### build workflow
+wf_run = Workflow(name="signal_noise")
+wf_run.base_dir = '.'
+wf_run.connect([(sf, odt_warnings, [("xmat", "in_file")]),
+                (sf, odt_info, [("xmat", "in_file")]),
+                (sf, tcater_node, [("allruns", 'in_files')]),
+                (tcater_node, stat_mean_node, [("path_output", "in_file")]),
+                (sf, stat_mean2_node, [("errts", "in_file")]),
+                (stat_mean_node, calcdiv, [("path_output", "in_file_a")]),
+                (stat_mean2_node, calcdiv, [("path_output", "in_file_b")])
+                ])
+wf_run.write_graph(graph2use='exec')
+wf_run.write_graph(graph2use='hierarchical')
+wf_run.run()
+
+
 
 
 
@@ -1679,31 +1716,122 @@ compare2brik(opj(path_afni_preprocessed_files, 'TSNR.{}+tlrc.BRIK'.format(sub)),
 ##################################
 ##################################
 
+templates = {
+                'errts': abspath('errts.FT+tlrc.BRIK'),
+                'fullmask': abspath("BlurAndMask/masktool/full_mask.FT+tlrc.BRIK.gz"),
+                'allrun': abspath('signal_noise/tcater/all_runs.FT+tlrc.BRIK'),
+                'nocensor_list': abspath('X.nocensor.xmat.1D'),
+                'nocensor': abspath('X.nocensor.xmat.1D'),
+            }
+
+# compare2brik(opj(path_afni_preprocessed_files, 'full_mask.FT+tlrc.BRIK.gz'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/BlurAndMask/masktool/full_mask.FT+tlrc.BRIK.gz') # TRUE
+# compare2brik(opj(path_afni_preprocessed_files, 'errts.FT+tlrc.BRIK'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/errts.FT+tlrc.BRIK') # TRUE
+# compare2brik(opj(path_afni_preprocessed_files, 'all_runs.FT+tlrc.BRIK'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/signal_noise/tcater/all_runs.FT+tlrc.BRIK') # TRUE
+
+
+# Create SelectFiles node
+sf = Node(SelectFiles(templates,  force_lists=["nocensor_list"]),
+          name='selectfiles')
+# Location of the dataset folder
+sf.inputs.base_directory = '.'
+
+
 
 # ---------------------------------------------------
 # compute and store GCOR (global correlation average)
 # (sum of squares of global mean of unit errts)
-tnorm = afni.TNorm() # Shifts voxel time series from input so that seperate slices are aligned to the same temporal origin.
-tnorm.inputs.in_file = 'errts.{}+tlrc.BRIK'.format(sub)
+
+tnorm = Node(afni.TNorm(), name="tnorm") # Shifts voxel time series from input so that seperate slices are aligned to the same temporal origin.
 tnorm.inputs.norm2 = True
 tnorm.inputs.out_file = 'rm.errts.unit+tlrc.BRIK'.format(sub)
-tnorm.cmdline
-# should be
-# 3dTnorm -norm2 -prefix rm.errts.unit errts.${subj}+tlrc
-res = tnorm.run()  
 
-maskave = afni.Maskave() # Computes average of all voxels in the input dataset which satisfy the criterion in the options list
-maskave.inputs.in_file = 'rm.errts.unit+tlrc.BRIK'
-maskave.inputs.mask= 'full_mask.{}+tlrc.BRIK.gz'.format(sub)
+maskave = Node(afni.Maskave(), name='maskave') # Computes average of all voxels in the input dataset which satisfy the criterion in the options list
 maskave.inputs.quiet= True
 maskave.inputs.out_file = "mean.errts.unit.1D"
-maskave.cmdline 
-# should be 
-# 3dmaskave -quiet -mask full_mask.$subj+tlrc rm.errts.unit+tlrc           \
-#          > mean.errts.unit.1D
-res = maskave.run()  
-compare2text(3, opj(path_afni_preprocessed_files, 'mean.errts.unit.1D'),'mean.errts.unit.1D') # TRUE
 
+
+# ---------------------------------------------------
+# compute correlation volume
+# (per voxel: correlation with masked brain average)
+maskave2 = Node(afni.Maskave(), name='maskave2') # Computes average of all voxels in the input dataset which satisfy the criterion in the options list
+maskave2.inputs.quiet = True
+maskave2.inputs.out_file = "mean.errts.1D"
+
+tcorr1D = Node(afni.TCorr1D(), name='tcorr1D') # Computes the correlation coefficient between each voxel time series in the input 3D+time dataset.
+tcorr1D.inputs.out_file = 'corr_brain+tlrc.BRIK'
+
+# create fitts dataset from all_runs and errts
+calc = Node(afni.Calc(), name='calc') # This program does voxel-by-voxel arithmetic on 3D datasets.
+calc.inputs.expr = 'a-b'
+calc.inputs.out_file = 'fitts.{}+tlrc.BRIK'.format(sub)
+
+# create ideal files for fixed response stim types
+cat1d = Node(afni.Cat(), name='cat1d')
+# 1dcat takes as input one or more 1D files, and writes out a 1D file 
+# containing the side-by-side concatenation of all or a subset of the columns from the input files.
+cat1d.inputs.sel = "'[12]'"
+cat1d.inputs.out_file = 'ideal_vis.1D'
+
+
+cat1d2 = Node(afni.Cat(), name='cat1d2')
+# 1dcat takes as input one or more 1D files, and writes out a 1D file 
+# containing the side-by-side concatenation of all or a subset of the columns from the input files.
+cat1d2.inputs.sel = "'[13]'"
+cat1d2.inputs.out_file = 'ideal_aud.1D'
+
+
+# --------------------------------------------------
+# extract non-baseline regressors from the X-matrix,
+# then compute their sum
+def odt(in_file): # requires fnction because output not drwas within workflow
+    import nipype.interfaces.afni as afni
+    from os.path import abspath
+    odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
+    odt.inputs.in_file = in_file
+    odt.inputs.args = "-write_xstim X.stim.xmat.1D"
+    res = odt.run()
+    path_out = abspath("X.stim.xmat.1D")
+    return path_out
+
+odt_node = Node(Function(input_names=["in_file"],
+                                    output_names=["path_out"],
+                                    function=odt),
+                        name='odt')
+
+
+tstat = Node(afni.TStat(),name='tstat') # Compute voxel-wise statistics
+tstat.inputs.out_file = "sum_ideal.1D"
+tstat.args = "-sum"
+
+####### build workflow
+wf_run = Workflow(name="glob_corr")
+wf_run.base_dir = '.'
+wf_run.connect([(sf, tnorm, [("errts", "in_file")]),
+                (tnorm, maskave, [("out_file", "in_file")]),
+                (sf, maskave, [("fullmask", "mask")]),
+                (sf, maskave2, [("fullmask", "mask")]),
+                (sf, maskave2, [("errts", "in_file")]),
+                (sf, tcorr1D, [("errts", "xset")]),
+                (maskave2, tcorr1D, [("out_file", "y_1d")]),
+                (sf, calc, [("allrun", "in_file_a")]),
+                (sf, calc, [("errts", "in_file_b")]),
+                (sf, cat1d, [("nocensor_list", "in_files")]),
+                (sf, cat1d2, [("nocensor_list", "in_files")]),
+                (sf, odt_node, [("nocensor", "in_file")]),
+                (odt_node, tstat, [("path_out", "in_file")])
+                ])
+wf_run.write_graph(graph2use='exec')
+wf_run.write_graph(graph2use='hierarchical')
+wf_run.run()
+
+
+#####################################
+#####################################
+# part NOT factorized
+######################################
+######################################
+
+# ends with this because not possible to implement within workflow because of transpose error
 """ERROR with input file (must be transposed)
 tstat = afni.TStat() # Compute voxel-wise statistics
 tstat.inputs.in_file = 'mean.errts.unit.1D'
@@ -1714,104 +1842,25 @@ tstat.cmdline
 # 3dTstat -sos -prefix - mean.errts.unit.1D\' > out.gcor.1D
 outgcor = tstat.run()
 """
-!3dTstat -sos -prefix - mean.errts.unit.1D\' > out.gcor.1D
 
+
+!3dTstat -sos -prefix - /home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/glob_corr/maskave/mean.errts.unit.1D\' > out.gcor.1D
 print("-- GCOR = `cat out.gcor.1D`")
 compare2text(3, opj(path_afni_preprocessed_files, 'out.gcor.1D'),'out.gcor.1D') # TRUE
 
+# FALSE FOR mean.errts.unit.1D and sum_ideal.1D # to do : CHECK WHY
 
-# ---------------------------------------------------
-# compute correlation volume
-# (per voxel: correlation with masked brain average)
-maskave = afni.Maskave() # Computes average of all voxels in the input dataset which satisfy the criterion in the options list
-maskave.inputs.in_file = 'errts.{}+tlrc.BRIK'.format(sub)
-maskave.inputs.mask = 'full_mask.{}+tlrc.BRIK.gz'.format(sub)
-maskave.inputs.quiet = True
-maskave.inputs.out_file = "mean.errts.1D"
-maskave.cmdline 
-# should be 
-# 3dmaskave -quiet -mask full_mask.$subj+tlrc errts.${subj}+tlrc           \
-#           > mean.errts.1D
-res = maskave.run()  
-compare2text(3, opj(path_afni_preprocessed_files, 'mean.errts.1D'),'mean.errts.1D') # TRUE
-
-
-tcorr1D = afni.TCorr1D() # Computes the correlation coefficient between each voxel time series in the input 3D+time dataset.
-tcorr1D.inputs.xset= 'errts.{}+tlrc.BRIK'.format(sub)
-tcorr1D.inputs.y_1d = 'mean.errts.1D'
-tcorr1D.inputs.out_file = 'corr_brain+tlrc.BRIK'
-tcorr1D.cmdline
-# should be
-# 3dTcorr1D -prefix corr_brain errts.${subj}+tlrc mean.errts.1D
-res = tcorr1D.run() 
-compare2brik(opj(path_afni_preprocessed_files, 'corr_brain+tlrc.BRIK'),'corr_brain+tlrc.BRIK') # TRUE
+compare2text(20, opj(path_afni_preprocessed_files, 'sum_ideal.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/glob_corr/tstat/sum_ideal.1D') # TRUE
+compare2text(3, opj(path_afni_preprocessed_files, 'X.stim.xmat.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/glob_corr/odt/X.stim.xmat.1D') # TRUE
+compare2brik(opj(path_afni_preprocessed_files, 'fitts.{}+tlrc.BRIK'.format(sub)),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/glob_corr/calc/fitts.FT+tlrc.BRIK') # TRUE
+compare2brik(opj(path_afni_preprocessed_files, 'corr_brain+tlrc.BRIK'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/glob_corr/tcorr1D/corr_brain+tlrc.BRIK') # TRUE
+compare2text(3, opj(path_afni_preprocessed_files, 'mean.errts.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/glob_corr/maskave/mean.errts.unit.1D') # TRUE
+compare2text(3, opj(path_afni_preprocessed_files, 'out.gcor.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/out.gcor.1D') # TRUE
+compare2text(3, opj(path_afni_preprocessed_files, 'mean.errts.unit.1D'),'/home/jlefortb/reproduction_afni_tutorial/afni_tuto_w_nipype/FT.results/glob_corr/maskave/mean.errts.unit.1D') # TRUE
 
 
 
-# create fitts dataset from all_runs and errts
-calc = afni.Calc() # This program does voxel-by-voxel arithmetic on 3D datasets.
-calc.inputs.in_file_a = 'all_runs.{}+tlrc.BRIK'.format(sub)
-calc.inputs.in_file_b = 'errts.{}+tlrc.BRIK'.format(sub)
-calc.inputs.expr = 'a-b'
-calc.inputs.out_file = 'fitts.{}+tlrc.BRIK'.format(sub)
-calc.cmdline
-# should be:
-# 3dcalc -a all_runs.$subj+tlrc -b errts.${subj}+tlrc -expr a-b            \
-#        -prefix fitts.$subj
-res = calc.run()
-compare2brik(opj(path_afni_preprocessed_files, 'fitts.{}+tlrc.BRIK'.format(sub)),'fitts.{}+tlrc.BRIK'.format(sub)) # TRUE
 
-
-# create ideal files for fixed response stim types
-cat1d = afni.Cat()
-# 1dcat takes as input one or more 1D files, and writes out a 1D file 
-# containing the side-by-side concatenation of all or a subset of the columns from the input files.
-cat1d.inputs.in_files = ["X.nocensor.xmat.1D"]
-cat1d.inputs.sel = "'[12]'"
-cat1d.inputs.out_file = 'ideal_vis.1D'
-cat1d.cmdline
-# should be
-# 1dcat X.nocensor.xmat.1D'[12]' > ideal_vis.1D
-res = cat1d.run()  
-compare2text(3, opj(path_afni_preprocessed_files, 'ideal_vis.1D'),'ideal_vis.1D') # TRUE
-
-
-cat1d = afni.Cat()
-# 1dcat takes as input one or more 1D files, and writes out a 1D file 
-# containing the side-by-side concatenation of all or a subset of the columns from the input files.
-cat1d.inputs.in_files = ["X.nocensor.xmat.1D"]
-cat1d.inputs.sel = "'[13]'"
-cat1d.inputs.out_file = 'ideal_aud.1D'
-cat1d.cmdline
-# should be
-# 1dcat X.nocensor.xmat.1D'[13]' > ideal_aud.1D
-res = cat1d.run()  
-compare2text(3, opj(path_afni_preprocessed_files, 'ideal_aud.1D'),'ideal_aud.1D') # TRUE
-
-
-# --------------------------------------------------
-
-# extract non-baseline regressors from the X-matrix,
-# then compute their sum
-odt = afni.OneDToolPy() # This program is meant to read/manipulate/write/diagnose 1D datasets.
-odt.inputs.in_file = 'X.nocensor.xmat.1D'
-odt.inputs.args = "-write_xstim X.stim.xmat.1D"
-odt.cmdline
-# should be:
-# 1d_tool.py -infile X.nocensor.xmat.1D -write_xstim X.stim.xmat.1D
-res = odt.run() 
-compare2text(3, opj(path_afni_preprocessed_files, 'X.stim.xmat.1D'),'X.stim.xmat.1D') # TRUE
-
-
-tstat = afni.TStat() # Compute voxel-wise statistics
-tstat.inputs.in_file = 'X.stim.xmat.1D'
-tstat.inputs.out_file = "sum_ideal.1D"
-tstat.args = "-sum"
-tstat.cmdline
-# should be
-# 3dTstat -sum -prefix sum_ideal.1D X.stim.xmat.1D
-res = tstat.run()
-compare2text(3, opj(path_afni_preprocessed_files, 'sum_ideal.1D'),'sum_ideal.1D') # TRUE
 
 
 # ============================ blur estimation =============================

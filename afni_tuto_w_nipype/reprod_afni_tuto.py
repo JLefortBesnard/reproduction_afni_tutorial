@@ -1431,14 +1431,16 @@ compare2text(3, opj(path_afni_preprocessed_files, 'out.df_info.txt'),'out.df_inf
 
 # create an all_runs dataset to match the fitts, errts, etc.
 tcat = afni.TCat() # Concatenate sub-bricks from input datasets into one big 3D+time dataset.
-tcat.inputs.in_files = ['pb04.{}.r0{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
+# tcat.inputs.in_files = ['pb04.{}.r0{}.scale+tlrc.HEAD'.format(sub, run) for run in runs]
+tcat.inputs.in_files = list_.allruns
 tcat.inputs.out_file = "all_runs.{}+tlrc.BRIK".format(sub)
 tcat.cmdline
 # should be
 # 3dTcat -prefix all_runs.$subj pb04.$subj.r*.scale+tlrc.HEAD
 res = tcat.run()  
-compare2brik(opj(path_afni_preprocessed_files, "all_runs.{}+tlrc.BRIK".format(sub)),"all_runs.{}+tlrc.BRIK".format(sub)) # TRUE
 
+
+compare2brik(opj(path_afni_preprocessed_files, "all_runs.{}+tlrc.BRIK".format(sub)),"all_runs.{}+tlrc.BRIK".format(sub)) # TRUE
 
 # --------------------------------------------------
 # create a temporal signal to noise ratio dataset 
